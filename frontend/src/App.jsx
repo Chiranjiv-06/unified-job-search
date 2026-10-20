@@ -8,6 +8,7 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import JobDiscovery from './pages/JobDiscovery';
+import Tracker from './pages/Tracker';
 import './App.css';
 
 function App() {
@@ -36,6 +37,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <JobDiscovery />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/tracker"
+                element={
+                  <ProtectedRoute>
+                    <Tracker />
                   </ProtectedRoute>
                 }
               />

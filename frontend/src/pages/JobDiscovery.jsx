@@ -6,7 +6,8 @@ import {
   matchJobApi,
   getRankedJobMatchesApi,
   verifyJobApi,
-  getJobVerificationApi
+  getJobVerificationApi,
+  trackJobApplyApi
 } from '../services/api';
 import {
   Briefcase,
@@ -30,7 +31,8 @@ import {
   ShieldCheck,
   ShieldAlert,
   Shield,
-  RotateCw
+  RotateCw,
+  BookmarkCheck
 } from 'lucide-react';
 
 export default function JobDiscovery() {
@@ -55,6 +57,10 @@ export default function JobDiscovery() {
   const [verificationAudit, setVerificationAudit] = useState(null);
   const [loadingVerification, setLoadingVerification] = useState(false);
   const [runningLiveAudit, setRunningLiveAudit] = useState(false);
+
+  // Application Pipeline Tracking state
+  const [trackingJobId, setTrackingJobId] = useState(null);
+  const [trackedJobIds, setTrackedJobIds] = useState(new Set());
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -177,6 +183,26 @@ export default function JobDiscovery() {
     }
   };
 
+  const handleTrackJob = async (job) => {
+    setTrackingJobId(job.id);
+    setErrorMsg(null);
+    try {
+      await trackJobApplyApi(job.id, {
+        notes: `Tracked directly from Job Discovery (${job.source_platform || 'Portal'})`
+      });
+      setTrackedJobIds((prev) => new Set([...prev, job.id]));
+      setSuccessMsg(`Added "${job.title}" at "${job.company_name}" to your Tracker pipeline!`);
+      setTimeout(() => setSuccessMsg(null), 3500);
+    } catch (err) {
+      if (err.status === 409 || err.response?.status === 409) {
+        setErrorMsg(`Already tracked: Active application already exists for ${job.company_name} - ${job.title}.`);
+      } else {
+        setErrorMsg(err.customMessage || 'Failed to track job application.');
+      }
+    } finally {
+      setTrackingJobId(null);
+    }
+  };
 
   const handleManualSubmit = async (e) => {
 
@@ -505,6 +531,26 @@ export default function JobDiscovery() {
                       <ShieldCheck size={13} color="#059669" />
                       <span>Verify Signals</span>
                     </button>
+                    <button
+                      onClick={() => handleTrackJob(job)}
+                      disabled={trackingJobId === job.id || trackedJobIds.has(job.id)}
+                      style={{
+                        ...styles.trackBtn,
+                        backgroundColor: trackedJobIds.has(job.id) ? '#ecfdf5' : '#eff6ff',
+                        borderColor: trackedJobIds.has(job.id) ? '#a7f3d0' : '#bfdbfe',
+                        color: trackedJobIds.has(job.id) ? '#059669' : '#2563eb',
+                      }}
+                      title="Track this job into your candidate pipeline"
+                    >
+                      {trackingJobId === job.id ? (
+                        <Loader2 size={13} className="spin" />
+                      ) : trackedJobIds.has(job.id) ? (
+                        <Check size={13} />
+                      ) : (
+                        <BookmarkCheck size={13} />
+                      )}
+                      <span>{trackedJobIds.has(job.id) ? 'Tracked' : 'Track Application'}</span>
+                    </button>
                   </div>
                   {job.source_url && (
                     <a
@@ -612,6 +658,26 @@ export default function JobDiscovery() {
                       <ShieldCheck size={13} color="#059669" />
                       <span>Verify Signals</span>
                     </button>
+                    <button
+                      onClick={() => handleTrackJob(item.job)}
+                      disabled={trackingJobId === item.job.id || trackedJobIds.has(item.job.id)}
+                      style={{
+                        ...styles.trackBtn,
+                        backgroundColor: trackedJobIds.has(item.job.id) ? '#ecfdf5' : '#eff6ff',
+                        borderColor: trackedJobIds.has(item.job.id) ? '#a7f3d0' : '#bfdbfe',
+                        color: trackedJobIds.has(item.job.id) ? '#059669' : '#2563eb',
+                      }}
+                      title="Track this job into your candidate pipeline"
+                    >
+                      {trackingJobId === item.job.id ? (
+                        <Loader2 size={13} className="spin" />
+                      ) : trackedJobIds.has(item.job.id) ? (
+                        <Check size={13} />
+                      ) : (
+                        <BookmarkCheck size={13} />
+                      )}
+                      <span>{trackedJobIds.has(item.job.id) ? 'Tracked' : 'Track Application'}</span>
+                    </button>
                   </div>
                   {item.job.source_url && (
                     <a
@@ -689,17 +755,39 @@ export default function JobDiscovery() {
                 </div>
               )}
 
-              {selectedJob.source_url && (
-                <div style={{ marginTop: '20px' }}>
-                  <a
-                    href={selectedJob.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.applyExternalBtn}
+              {selectedJob && (
+                <div style={{ marginTop: '20px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => handleTrackJob(selectedJob)}
+                    disabled={trackingJobId === selectedJob.id || trackedJobIds.has(selectedJob.id)}
+                    style={{
+                      ...styles.modalTrackBtn,
+                      backgroundColor: trackedJobIds.has(selectedJob.id) ? '#ecfdf5' : '#2563eb',
+                      color: trackedJobIds.has(selectedJob.id) ? '#059669' : '#ffffff',
+                      borderColor: trackedJobIds.has(selectedJob.id) ? '#a7f3d0' : '#2563eb',
+                    }}
                   >
-                    <span>Visit Original Job Portal</span>
-                    <ExternalLink size={15} />
-                  </a>
+                    {trackingJobId === selectedJob.id ? (
+                      <Loader2 size={15} className="spin" />
+                    ) : trackedJobIds.has(selectedJob.id) ? (
+                      <Check size={15} />
+                    ) : (
+                      <BookmarkCheck size={15} />
+                    )}
+                    <span>{trackedJobIds.has(selectedJob.id) ? 'Application Tracked' : 'Track into Pipeline'}</span>
+                  </button>
+
+                  {selectedJob.source_url && (
+                    <a
+                      href={selectedJob.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={styles.applyExternalBtn}
+                    >
+                      <span>Visit Original Job Portal</span>
+                      <ExternalLink size={15} />
+                    </a>
+                  )}
                 </div>
               )}
             </div>
@@ -2220,6 +2308,34 @@ const styles = {
     fontSize: '12px',
     fontWeight: '600',
     cursor: 'pointer',
+  },
+  trackBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 12px',
+    borderRadius: '6px',
+    border: '1px solid #bfdbfe',
+    backgroundColor: '#eff6ff',
+    color: '#2563eb',
+    fontSize: '12px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
+  modalTrackBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '10px 18px',
+    borderRadius: '8px',
+    border: '1px solid #2563eb',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
   },
   scamFlagsAlertBox: {
     backgroundColor: '#fef2f2',

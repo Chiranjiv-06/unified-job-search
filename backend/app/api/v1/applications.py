@@ -11,7 +11,8 @@ from app.schemas.application import (
     ApplicationUpdate,
     ApplicationStageUpdate,
     ApplicationResponse,
-    ApplicationListResponse
+    ApplicationListResponse,
+    PipelineMetricsResponse
 )
 from app.services.application_service import ApplicationService
 
@@ -58,6 +59,19 @@ def list_applications(
         total=total,
         skip=skip,
         limit=limit
+    )
+
+@router.get("/metrics", response_model=PipelineMetricsResponse)
+def get_pipeline_metrics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns aggregated pipeline counts per stage for the authenticated candidate.
+    """
+    return ApplicationService.get_pipeline_metrics(
+        db=db,
+        user_id=current_user.id
     )
 
 @router.get("/{application_id}", response_model=ApplicationResponse)

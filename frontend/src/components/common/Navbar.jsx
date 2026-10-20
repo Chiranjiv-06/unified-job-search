@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
-import { Briefcase, User as UserIcon, LogOut, LayoutDashboard } from 'lucide-react';
+import { Briefcase, User as UserIcon, LogOut, LayoutDashboard, Kanban } from 'lucide-react';
 
 export default function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
@@ -48,6 +48,17 @@ export default function Navbar() {
             >
               <Briefcase size={16} />
               <span>Jobs</span>
+            </Link>
+
+            <Link
+              to="/tracker"
+              style={{
+                ...styles.navLink,
+                ...(location.pathname === '/tracker' ? styles.navLinkActive : {}),
+              }}
+            >
+              <Kanban size={16} />
+              <span>Tracker</span>
             </Link>
 
             <Link

@@ -10,8 +10,10 @@ from app.api.deps import get_current_user
 from app.schemas.job import JobCreate, JobUpdate, JobImportRequest, JobResponse, JobListResponse
 from app.schemas.matching import MatchBreakdownResponse, JobMatchRankingsResponse
 from app.schemas.verification import JobVerificationResponse
+from app.schemas.application import ApplicationResponse, TrackJobApplyRequest
 from app.services import job_service, matching_service
 from app.services.verification_service import VerificationService
+from app.services.application_service import ApplicationService
 
 router = APIRouter(prefix="/jobs", tags=["Job Discovery & Records"])
 
@@ -133,6 +135,24 @@ def get_job_verification(
     return VerificationService.get_latest_job_verification(db=db, job=job)
 
 
+@router.post("/{job_id}/apply", response_model=ApplicationResponse, status_code=status.HTTP_201_CREATED)
+def apply_and_track_job(
+    job_id: int,
+    track_in: Optional[TrackJobApplyRequest] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Instantly tracks a discovered job posting into the candidate's active Kanban pipeline.
+    Auto-links Company, creates Application with status APPLIED (or custom status),
+    and prevents duplicate applications.
+    """
+    return ApplicationService.track_from_job(
+        db=db,
+        user_id=current_user.id,
+        job_id=job_id,
+        track_in=track_in
+    )
 
 
 @router.get("/{job_id}", response_model=JobResponse)

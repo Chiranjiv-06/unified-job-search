@@ -14,7 +14,9 @@ from app.schemas.application import (
     ApplicationUpdate,
     ApplicationStageUpdate,
     ApplicationResponse,
-    ApplicationListResponse
+    ApplicationListResponse,
+    PipelineMetricsResponse,
+    TrackJobApplyRequest
 )
 from app.schemas.verification import (
     VerificationRequest,
@@ -58,6 +60,8 @@ __all__ = [
     "ApplicationStageUpdate",
     "ApplicationResponse",
     "ApplicationListResponse",
+    "PipelineMetricsResponse",
+    "TrackJobApplyRequest",
     "VerificationRequest",
     "VerificationResponse",
     "JobVerificationResponse",

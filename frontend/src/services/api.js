@@ -164,6 +164,47 @@ export const getJobVerificationApi = async (jobId) => {
   return response.data;
 };
 
+// Application Tracking & Pipeline endpoints
+export const getApplicationsApi = async (params = {}) => {
+  const response = await api.get('/api/v1/applications', { params });
+  return response.data;
+};
+
+export const getPipelineMetricsApi = async () => {
+  const response = await api.get('/api/v1/applications/metrics');
+  return response.data;
+};
+
+export const getApplicationDetailsApi = async (applicationId) => {
+  const response = await api.get(`/api/v1/applications/${applicationId}`);
+  return response.data;
+};
+
+export const createApplicationApi = async (data) => {
+  const response = await api.post('/api/v1/applications', data);
+  return response.data;
+};
+
+export const updateApplicationStageApi = async (applicationId, stageData) => {
+  const response = await api.patch(`/api/v1/applications/${applicationId}/stage`, stageData);
+  return response.data;
+};
+
+export const updateApplicationDetailsApi = async (applicationId, data) => {
+  const response = await api.patch(`/api/v1/applications/${applicationId}`, data);
+  return response.data;
+};
+
+export const deleteApplicationApi = async (applicationId) => {
+  const response = await api.delete(`/api/v1/applications/${applicationId}`);
+  return response.data;
+};
+
+export const trackJobApplyApi = async (jobId, data = {}) => {
+  const response = await api.post(`/api/jobs/${jobId}/apply`, data);
+  return response.data;
+};
+
 export default api;
 
 

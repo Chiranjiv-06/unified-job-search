@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
-from sqlalchemy import String, Text, ForeignKey, DateTime, Enum as SAEnum, func
+from sqlalchemy import String, Text, ForeignKey, DateTime, Enum as SAEnum, JSON, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from app.core.enums import ApplicationStatus
@@ -49,6 +50,15 @@ class Application(Base):
         index=True
     )
     response_deadline: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    recruiter_contact: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    interview_details: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    resume_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    timeline_events: Mapped[Optional[list]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+        default=list
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
