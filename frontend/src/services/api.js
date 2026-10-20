@@ -153,6 +153,17 @@ export const getRankedJobMatchesApi = async () => {
   return response.data;
 };
 
+// Verification Signals endpoints
+export const verifyJobApi = async (jobId) => {
+  const response = await api.post(`/api/jobs/${jobId}/verify`);
+  return response.data;
+};
+
+export const getJobVerificationApi = async (jobId) => {
+  const response = await api.get(`/api/jobs/${jobId}/verification`);
+  return response.data;
+};
+
 export default api;
 
 

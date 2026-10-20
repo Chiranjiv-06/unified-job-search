@@ -18,7 +18,8 @@ from app.schemas.application import (
 )
 from app.schemas.verification import (
     VerificationRequest,
-    VerificationResponse
+    VerificationResponse,
+    JobVerificationResponse
 )
 from app.schemas.email_event import (
     EmailWebhookPayload,
@@ -59,6 +60,7 @@ __all__ = [
     "ApplicationListResponse",
     "VerificationRequest",
     "VerificationResponse",
+    "JobVerificationResponse",
     "EmailWebhookPayload",
     "EmailEventResponse",
     "EmailIngestTaskResponse",

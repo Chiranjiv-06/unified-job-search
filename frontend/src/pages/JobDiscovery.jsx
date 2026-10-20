@@ -4,7 +4,9 @@ import {
   createJobApi,
   importJobUrlApi,
   matchJobApi,
-  getRankedJobMatchesApi
+  getRankedJobMatchesApi,
+  verifyJobApi,
+  getJobVerificationApi
 } from '../services/api';
 import {
   Briefcase,
@@ -24,7 +26,11 @@ import {
   Target,
   Lightbulb,
   AlertTriangle,
-  Check
+  Check,
+  ShieldCheck,
+  ShieldAlert,
+  Shield,
+  RotateCw
 } from 'lucide-react';
 
 export default function JobDiscovery() {
@@ -43,6 +49,12 @@ export default function JobDiscovery() {
   const [matchModalJob, setMatchModalJob] = useState(null);
   const [matchBreakdown, setMatchBreakdown] = useState(null);
   const [loadingMatch, setLoadingMatch] = useState(false);
+
+  // Verification Signals Modal state
+  const [verificationModalJob, setVerificationModalJob] = useState(null);
+  const [verificationAudit, setVerificationAudit] = useState(null);
+  const [loadingVerification, setLoadingVerification] = useState(false);
+  const [runningLiveAudit, setRunningLiveAudit] = useState(false);
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -134,6 +146,37 @@ export default function JobDiscovery() {
       fetchRankedMatches();
     }
   };
+
+  const handleCheckVerification = async (job) => {
+    setVerificationModalJob(job);
+    setLoadingVerification(true);
+    setVerificationAudit(null);
+    setErrorMsg(null);
+    try {
+      const data = await getJobVerificationApi(job.id);
+      setVerificationAudit(data);
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to fetch verification audit signals.');
+    } finally {
+      setLoadingVerification(false);
+    }
+  };
+
+  const handleReRunVerification = async (jobId) => {
+    setRunningLiveAudit(true);
+    setErrorMsg(null);
+    try {
+      const data = await verifyJobApi(jobId);
+      setVerificationAudit(data);
+      setSuccessMsg('Live verification audit refreshed!');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to re-run live verification audit.');
+    } finally {
+      setRunningLiveAudit(false);
+    }
+  };
+
 
   const handleManualSubmit = async (e) => {
 
@@ -440,7 +483,7 @@ export default function JobDiscovery() {
                 )}
 
                 <div style={styles.jobCardFooter}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <button
                       onClick={() => setSelectedJob(job)}
                       style={styles.detailsBtn}
@@ -453,6 +496,14 @@ export default function JobDiscovery() {
                     >
                       <Sparkles size={13} color="#2563eb" />
                       <span>Check Match</span>
+                    </button>
+                    <button
+                      onClick={() => handleCheckVerification(job)}
+                      style={styles.verifyBtn}
+                      title="Inspect legitimacy, DNS, MX, and scam signals"
+                    >
+                      <ShieldCheck size={13} color="#059669" />
+                      <span>Verify Signals</span>
                     </button>
                   </div>
                   {job.source_url && (
@@ -539,7 +590,7 @@ export default function JobDiscovery() {
                 </p>
 
                 <div style={styles.jobCardFooter}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <button
                       onClick={() => setSelectedJob(item.job)}
                       style={styles.detailsBtn}
@@ -552,6 +603,14 @@ export default function JobDiscovery() {
                     >
                       <Sparkles size={13} color="#ffffff" />
                       <span>Detailed Breakdown</span>
+                    </button>
+                    <button
+                      onClick={() => handleCheckVerification(item.job)}
+                      style={styles.verifyBtn}
+                      title="Inspect legitimacy, DNS, MX, and scam signals"
+                    >
+                      <ShieldCheck size={13} color="#059669" />
+                      <span>Verify Signals</span>
                     </button>
                   </div>
                   {item.job.source_url && (
@@ -1102,6 +1161,289 @@ export default function JobDiscovery() {
                 style={styles.primaryBtn}
               >
                 Close Breakdown
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Job & Company Verification Evidence Audit */}
+      {verificationModalJob && (
+        <div style={styles.modalOverlay} onClick={() => setVerificationModalJob(null)}>
+          <div
+            style={{ ...styles.modalContent, maxWidth: '720px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={styles.modalHeader}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <ShieldCheck size={18} color="#059669" />
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#059669', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Job Legitimacy & Verification Audit
+                  </span>
+                </div>
+                <h2 style={styles.modalTitle}>{verificationModalJob.title}</h2>
+                <p style={styles.modalSub}>{verificationModalJob.company_name}</p>
+              </div>
+              <button onClick={() => setVerificationModalJob(null)} style={styles.modalCloseBtn}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              {loadingVerification ? (
+                <div style={styles.loadingContainer}>
+                  <Loader2 size={32} className="spin" color="#059669" />
+                  <p style={{ marginTop: '12px', color: '#4b5563', fontSize: '14px' }}>
+                    Auditing domain records, DNS MX mail servers, ATS hosts, and scam heuristics...
+                  </p>
+                </div>
+              ) : verificationAudit ? (
+                <div>
+                  {/* Risk Score & Evidence Banner */}
+                  <div style={styles.meterCard}>
+                    <div style={styles.meterHeader}>
+                      <div>
+                        <span style={styles.meterLabel}>Legitimacy & Scam Risk Score</span>
+                        <div style={styles.scoreRow}>
+                          <span
+                            style={{
+                              ...styles.meterScore,
+                              color:
+                                verificationAudit.risk_level === 'LOW_RISK'
+                                  ? '#059669'
+                                  : verificationAudit.risk_level === 'CAUTION'
+                                  ? '#d97706'
+                                  : '#dc2626'
+                            }}
+                          >
+                            {verificationAudit.risk_score}% Risk
+                          </span>
+                          <span
+                            style={{
+                              ...styles.scoreTierBadge,
+                              backgroundColor:
+                                verificationAudit.risk_level === 'LOW_RISK'
+                                  ? '#ecfdf5'
+                                  : verificationAudit.risk_level === 'CAUTION'
+                                  ? '#fffbeb'
+                                  : '#fef2f2',
+                              color:
+                                verificationAudit.risk_level === 'LOW_RISK'
+                                  ? '#047857'
+                                  : verificationAudit.risk_level === 'CAUTION'
+                                  ? '#b45309'
+                                  : '#b91c1c',
+                              borderColor:
+                                verificationAudit.risk_level === 'LOW_RISK'
+                                  ? '#a7f3d0'
+                                  : verificationAudit.risk_level === 'CAUTION'
+                                  ? '#fde68a'
+                                  : '#fecaca'
+                            }}
+                          >
+                            {verificationAudit.risk_level === 'LOW_RISK'
+                              ? '✓ Low Risk (Verified Signals)'
+                              : verificationAudit.risk_level === 'CAUTION'
+                              ? '⚠️ Caution (Partial Signals)'
+                              : verificationAudit.risk_level === 'HIGH_RISK'
+                              ? '⚠️ High Risk Warning'
+                              : '🚨 Critical Scam Warning'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: '11px', color: '#6b7280', display: 'block' }}>Audited At</span>
+                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>
+                          {new Date(verificationAudit.checked_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Risk Bar (lower is safer) */}
+                    <div style={styles.progressBarBg}>
+                      <div
+                        style={{
+                          ...styles.progressBarFill,
+                          width: `${Math.min(100, Math.max(5, verificationAudit.risk_score))}%`,
+                          backgroundColor:
+                            verificationAudit.risk_level === 'LOW_RISK'
+                              ? '#10b981'
+                              : verificationAudit.risk_level === 'CAUTION'
+                              ? '#f59e0b'
+                              : '#ef4444'
+                        }}
+                      />
+                    </div>
+
+                    <div style={styles.explanationText}>
+                      <Lightbulb size={16} color="#4b5563" style={{ flexShrink: 0, marginTop: '2px' }} />
+                      <span>{verificationAudit.evidence_summary}</span>
+                    </div>
+                  </div>
+
+                  {/* Red Flag Scam Warning Banner */}
+                  {verificationAudit.scam_flags && verificationAudit.scam_flags.length > 0 && (
+                    <div style={styles.scamFlagsAlertBox}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <AlertTriangle size={18} color="#b91c1c" />
+                        <strong style={{ fontSize: '13px', color: '#991b1b' }}>
+                          Scam & Phishing Flags Detected ({verificationAudit.scam_flags.length})
+                        </strong>
+                      </div>
+                      <ul style={styles.scamFlagsList}>
+                        {verificationAudit.scam_flags.map((flag, idx) => (
+                          <li key={idx} style={styles.scamFlagsListItem}>
+                            {flag}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* 4-Point Technical Verification Grid */}
+                  <div style={styles.verificationGrid}>
+                    <div style={styles.verifyMetricCard}>
+                      <div style={styles.verifyMetricHeader}>
+                        <span style={styles.verifyMetricTitle}>Domain & DNS</span>
+                        {verificationAudit.domain_valid ? (
+                          <CheckCircle2 size={16} color="#059669" />
+                        ) : (
+                          <AlertCircle size={16} color="#dc2626" />
+                        )}
+                      </div>
+                      <span style={styles.verifyMetricVal}>
+                        {verificationAudit.domain || 'Not Specified'}
+                      </span>
+                      <span style={styles.verifyMetricSub}>
+                        {verificationAudit.domain_valid ? 'DNS Host Verified' : 'Unresolved / Missing'}
+                      </span>
+                    </div>
+
+                    <div style={styles.verifyMetricCard}>
+                      <div style={styles.verifyMetricHeader}>
+                        <span style={styles.verifyMetricTitle}>Corporate MX Records</span>
+                        {verificationAudit.mx_records_found ? (
+                          <CheckCircle2 size={16} color="#059669" />
+                        ) : (
+                          <AlertCircle size={16} color="#f59e0b" />
+                        )}
+                      </div>
+                      <span style={styles.verifyMetricVal}>
+                        {verificationAudit.mx_records_found ? 'Active Mail Server' : 'No MX Records'}
+                      </span>
+                      <span style={styles.verifyMetricSub}>
+                        {verificationAudit.mx_records_found ? 'Corporate email configured' : 'Unconfirmed mail routing'}
+                      </span>
+                    </div>
+
+                    <div style={styles.verifyMetricCard}>
+                      <div style={styles.verifyMetricHeader}>
+                        <span style={styles.verifyMetricTitle}>Official Career Site / ATS</span>
+                        {verificationAudit.official_posting_matched ? (
+                          <CheckCircle2 size={16} color="#059669" />
+                        ) : (
+                          <AlertCircle size={16} color="#6b7280" />
+                        )}
+                      </div>
+                      <span style={styles.verifyMetricVal}>
+                        {verificationAudit.official_posting_matched ? 'Corroborated Host' : 'External / Unmatched'}
+                      </span>
+                      <span style={styles.verifyMetricSub}>
+                        {verificationAudit.details?.job_host || 'Direct Link Unchecked'}
+                      </span>
+                    </div>
+
+                    <div style={styles.verifyMetricCard}>
+                      <div style={styles.verifyMetricHeader}>
+                        <span style={styles.verifyMetricTitle}>Employer Status</span>
+                        {verificationAudit.is_verified ? (
+                          <ShieldCheck size={16} color="#059669" />
+                        ) : (
+                          <ShieldAlert size={16} color="#dc2626" />
+                        )}
+                      </div>
+                      <span style={styles.verifyMetricVal}>
+                        {verificationAudit.is_verified ? 'Verified Employer' : 'Unverified Listing'}
+                      </span>
+                      <span style={styles.verifyMetricSub}>
+                        {verificationAudit.details?.flags_count === 0 ? 'Zero scam flags' : `${verificationAudit.details?.flags_count} flags detected`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Evidence Points Audit Trail */}
+                  {verificationAudit.evidence_points && verificationAudit.evidence_points.length > 0 && (
+                    <div style={styles.sectionCard}>
+                      <h4 style={styles.sectionCardTitle}>
+                        <Layers size={15} color="#059669" />
+                        <span>Evidence Audit Trail</span>
+                      </h4>
+                      <div style={styles.evidencePointsContainer}>
+                        {verificationAudit.evidence_points.map((pt, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              ...styles.evidencePointRow,
+                              backgroundColor:
+                                pt.includes('CRITICAL') || pt.includes('🚨')
+                                  ? '#fef2f2'
+                                  : pt.includes('WARNING') || pt.includes('⚠️')
+                                  ? '#fffbeb'
+                                  : pt.includes('✓')
+                                  ? '#f0fdf4'
+                                  : '#f9fafb',
+                              borderColor:
+                                pt.includes('CRITICAL') || pt.includes('🚨')
+                                  ? '#fecaca'
+                                  : pt.includes('WARNING') || pt.includes('⚠️')
+                                  ? '#fde68a'
+                                  : pt.includes('✓')
+                                  ? '#bbf7d0'
+                                  : '#e5e7eb'
+                            }}
+                          >
+                            <span style={{ fontSize: '13px', lineHeight: 1.5, color: '#1f2937' }}>
+                              {pt}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Safety Guidance */}
+                  <div style={styles.safetyNoticeBox}>
+                    <Shield size={16} color="#047857" style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <p style={{ margin: 0, fontSize: '12px', color: '#065f46', lineHeight: 1.5 }}>
+                      <strong>Candidate Safety Reminder:</strong> Legitimate corporate employers will never ask for payment, security deposits, or purchase of equipment. Always ensure official communications come from verified corporate email addresses.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div style={styles.emptyState}>
+                  <p>No verification evidence available.</p>
+                </div>
+              )}
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                onClick={() => handleReRunVerification(verificationModalJob.id)}
+                disabled={runningLiveAudit}
+                style={styles.outlineBtn}
+              >
+                {runningLiveAudit ? <Loader2 size={14} className="spin" /> : <RotateCw size={14} />}
+                <span>{runningLiveAudit ? 'Re-auditing...' : 'Re-run Live Audit'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setVerificationModalJob(null)}
+                style={styles.primaryBtn}
+              >
+                Done
               </button>
             </div>
           </div>
@@ -1866,5 +2208,93 @@ const styles = {
     color: '#4c1d95',
     marginBottom: '6px',
   },
+  verifyBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 12px',
+    borderRadius: '6px',
+    border: '1px solid #a7f3d0',
+    backgroundColor: '#ecfdf5',
+    color: '#065f46',
+    fontSize: '12px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  scamFlagsAlertBox: {
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    padding: '14px',
+    marginBottom: '16px',
+  },
+  scamFlagsList: {
+    margin: 0,
+    paddingLeft: '20px',
+  },
+  scamFlagsListItem: {
+    fontSize: '12px',
+    color: '#991b1b',
+    lineHeight: 1.5,
+    marginBottom: '4px',
+  },
+  verificationGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, 1fr)',
+    gap: '12px',
+    marginBottom: '16px',
+  },
+  verifyMetricCard: {
+    backgroundColor: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    padding: '12px 14px',
+  },
+  verifyMetricHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '4px',
+  },
+  verifyMetricTitle: {
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    letterSpacing: '0.4px',
+  },
+  verifyMetricVal: {
+    display: 'block',
+    fontSize: '13px',
+    fontWeight: '700',
+    color: '#111827',
+  },
+  verifyMetricSub: {
+    display: 'block',
+    fontSize: '11px',
+    color: '#6b7280',
+    marginTop: '2px',
+  },
+  evidencePointsContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  evidencePointRow: {
+    padding: '10px 12px',
+    borderRadius: '6px',
+    border: '1px solid #e5e7eb',
+  },
+  safetyNoticeBox: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '10px',
+    padding: '12px 14px',
+    backgroundColor: '#f0fdf4',
+    border: '1px solid #bbf7d0',
+    borderRadius: '8px',
+    marginTop: '16px',
+  },
 };
+
 

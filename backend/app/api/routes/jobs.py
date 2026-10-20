@@ -9,7 +9,9 @@ from app.models.profile import CandidateProfile
 from app.api.deps import get_current_user
 from app.schemas.job import JobCreate, JobUpdate, JobImportRequest, JobResponse, JobListResponse
 from app.schemas.matching import MatchBreakdownResponse, JobMatchRankingsResponse
+from app.schemas.verification import JobVerificationResponse
 from app.services import job_service, matching_service
+from app.services.verification_service import VerificationService
 
 router = APIRouter(prefix="/jobs", tags=["Job Discovery & Records"])
 
@@ -101,6 +103,35 @@ def match_job_with_candidate(
         select(CandidateProfile).where(CandidateProfile.user_id == current_user.id)
     ).scalar_one_or_none()
     return matching_service.compute_job_match(profile=profile, job=job)
+
+
+@router.post("/{job_id}/verify", response_model=JobVerificationResponse)
+def verify_job_opportunity(
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Triggers an evidence-based verification audit for a specific job posting
+    and persists the audit findings to verification_logs.
+    """
+    job = job_service.get_job_by_id(db=db, job_id=job_id)
+    return VerificationService.audit_job_legitimacy(db=db, job=job)
+
+
+@router.get("/{job_id}/verification", response_model=JobVerificationResponse)
+def get_job_verification(
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the latest verification audit record, domain/DNS evidence,
+    and scam heuristic signals for a specific job posting.
+    """
+    job = job_service.get_job_by_id(db=db, job_id=job_id)
+    return VerificationService.get_latest_job_verification(db=db, job=job)
+
 
 
 

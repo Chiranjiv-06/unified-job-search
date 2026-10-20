@@ -16,9 +16,19 @@ class VerificationResponse(BaseModel):
     official_posting_matched: bool
     scam_flags: List[str] = []
     fraud_score: float = Field(..., ge=0.0, le=100.0, description="Risk/fraud score from 0 (verified safe) to 100 (high risk)")
+    risk_score: Optional[float] = None
+    risk_level: Optional[str] = None
+    evidence_points: List[str] = []
     is_verified: bool
     checked_at: datetime
     evidence_summary: str
     details: Dict[str, Any] = {}
 
     model_config = ConfigDict(from_attributes=True)
+
+class JobVerificationResponse(VerificationResponse):
+    job_id: int
+    risk_score: float
+    risk_level: str
+    evidence_points: List[str] = []
+
