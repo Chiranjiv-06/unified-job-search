@@ -11,6 +11,7 @@ import JobDiscovery from './pages/JobDiscovery';
 import Tracker from './pages/Tracker';
 import EmailHub from './pages/EmailHub';
 import RemindersHub from './pages/RemindersHub';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import './App.css';
 
 function App() {
@@ -20,7 +21,8 @@ function App() {
         <div style={styles.appContainer}>
           <Navbar />
           <main style={styles.mainContent}>
-            <Routes>
+            <ErrorBoundary>
+              <Routes>
               {/* Public Routes */}
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
@@ -79,7 +81,8 @@ function App() {
               {/* Fallback route */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
-          </main>
+          </ErrorBoundary>
+        </main>
         </div>
       </AuthProvider>
     </BrowserRouter>

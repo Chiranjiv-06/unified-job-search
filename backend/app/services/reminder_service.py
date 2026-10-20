@@ -264,9 +264,9 @@ class ReminderService:
 
         top_skills = []
         if profile and profile.skills:
-            top_skills = [s.name for s in profile.skills[:3]]
+            top_skills = [getattr(s, "skill_name", getattr(s, "name", str(s))) for s in profile.skills[:3]]
         elif profile and profile.parsed_skills and isinstance(profile.parsed_skills, list):
-            top_skills = profile.parsed_skills[:3]
+            top_skills = [str(x) for x in profile.parsed_skills[:3]]
         skills_str = ", ".join(top_skills) if top_skills else "software engineering and system design"
 
         company_name = app.company.name if app.company else "your team"
