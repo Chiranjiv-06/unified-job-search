@@ -223,6 +223,22 @@ export const linkEmailToApplicationApi = async (emailId, applicationId) => {
   return response.data;
 };
 
+// Reminders & Follow-Up Assistant endpoints
+export const getRemindersAlertsApi = async () => {
+  const response = await api.get('/api/v1/reminders/alerts');
+  return response.data;
+};
+
+export const draftFollowUpApi = async (applicationId, data = {}) => {
+  const response = await api.post(`/api/v1/reminders/draft-followup/${applicationId}`, data);
+  return response.data;
+};
+
+export const logFollowUpActionApi = async (applicationId, data = {}) => {
+  const response = await api.post(`/api/v1/reminders/log-followup/${applicationId}`, data);
+  return response.data;
+};
+
 export default api;
 
 

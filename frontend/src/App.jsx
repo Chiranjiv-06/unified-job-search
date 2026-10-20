@@ -10,6 +10,7 @@ import Profile from './pages/Profile';
 import JobDiscovery from './pages/JobDiscovery';
 import Tracker from './pages/Tracker';
 import EmailHub from './pages/EmailHub';
+import RemindersHub from './pages/RemindersHub';
 import './App.css';
 
 function App() {
@@ -54,6 +55,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <EmailHub />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/reminders"
+                element={
+                  <ProtectedRoute>
+                    <RemindersHub />
                   </ProtectedRoute>
                 }
               />

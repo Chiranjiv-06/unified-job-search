@@ -7,7 +7,9 @@ import {
   createApplicationApi,
   updateApplicationStageApi,
   updateApplicationDetailsApi,
-  deleteApplicationApi
+  deleteApplicationApi,
+  draftFollowUpApi,
+  logFollowUpActionApi
 } from '../services/api';
 import {
   Kanban,
@@ -30,7 +32,10 @@ import {
   Award,
   Layers,
   ArrowRight,
-  FileText
+  FileText,
+  Sparkles,
+  Copy,
+  Check
 } from 'lucide-react';
 
 const STAGES = [
@@ -86,6 +91,17 @@ export default function Tracker() {
   const [newInitialStage, setNewInitialStage] = useState('APPLIED');
   const [newNotes, setNewNotes] = useState('');
   const [newRecruiterEmail, setNewRecruiterEmail] = useState('');
+
+  // Follow-Up Drafter Modal State
+  const [followUpApp, setFollowUpApp] = useState(null);
+  const [followUpTone, setFollowUpTone] = useState('professional');
+  const [followUpSubject, setFollowUpSubject] = useState('');
+  const [followUpBody, setFollowUpBody] = useState('');
+  const [followUpRecipient, setFollowUpRecipient] = useState('');
+  const [followUpMailto, setFollowUpMailto] = useState('');
+  const [followUpLoading, setFollowUpLoading] = useState(false);
+  const [followUpCopied, setFollowUpCopied] = useState(false);
+  const [followUpLogging, setFollowUpLogging] = useState(false);
 
   const fetchTrackerData = useCallback(async () => {
     setLoading(true);
@@ -273,6 +289,74 @@ export default function Tracker() {
       setErrorMsg(err.customMessage || 'Failed to create application.');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // Follow-Up Assistant Handlers
+  const handleOpenFollowUp = async (app, initialTone = 'professional') => {
+    setFollowUpApp(app);
+    setFollowUpTone(initialTone);
+    setFollowUpLoading(true);
+    setFollowUpCopied(false);
+    setErrorMsg(null);
+    try {
+      const data = await draftFollowUpApi(app.id, { tone: initialTone });
+      setFollowUpSubject(data.subject);
+      setFollowUpBody(data.body);
+      setFollowUpRecipient(data.recipient_email || '');
+      setFollowUpMailto(data.mailto_link || '');
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to generate follow-up draft.');
+    } finally {
+      setFollowUpLoading(false);
+    }
+  };
+
+  const handleToneChange = async (tone) => {
+    setFollowUpTone(tone);
+    if (!followUpApp) return;
+    setFollowUpLoading(true);
+    try {
+      const data = await draftFollowUpApi(followUpApp.id, { tone });
+      setFollowUpSubject(data.subject);
+      setFollowUpBody(data.body);
+      setFollowUpMailto(data.mailto_link || '');
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to update follow-up tone.');
+    } finally {
+      setFollowUpLoading(false);
+    }
+  };
+
+  const handleCopyFollowUp = async () => {
+    const fullText = `Subject: ${followUpSubject}\n\n${followUpBody}`;
+    try {
+      await navigator.clipboard.writeText(fullText);
+      setFollowUpCopied(true);
+      setTimeout(() => setFollowUpCopied(false), 3000);
+      setSuccessMsg('Email draft copied to clipboard!');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch {
+      setErrorMsg('Failed to copy to clipboard.');
+    }
+  };
+
+  const handleLogFollowUp = async () => {
+    if (!followUpApp) return;
+    setFollowUpLogging(true);
+    setErrorMsg(null);
+    try {
+      await logFollowUpActionApi(followUpApp.id, {
+        notes: `Follow-up email sent (${followUpTone} tone): "${followUpSubject}"`
+      });
+      setSuccessMsg(`Follow-up logged in ${followUpApp.company_name} timeline!`);
+      setTimeout(() => setSuccessMsg(null), 3500);
+      setFollowUpApp(null);
+      fetchTrackerData();
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to log follow-up action.');
+    } finally {
+      setFollowUpLogging(false);
     }
   };
 
@@ -616,6 +700,42 @@ export default function Tracker() {
                           </div>
                         )}
 
+                        {/* Visual Aging Indicator Pill */}
+                        {app.status !== 'REJECTED' && app.status !== 'OFFER' && app.days_since_activity >= 3 && (
+                          <div
+                            style={
+                              app.days_since_activity >= 14
+                                ? styles.cardStaleLeadPill
+                                : styles.cardStalledPill
+                            }
+                            title={
+                              app.days_since_activity >= 14
+                                ? `Stale Lead: ${app.days_since_activity} days inactive without status update`
+                                : `Stalled: ${app.days_since_activity} days without update. Consider sending a follow-up inquiry.`
+                            }
+                          >
+                            <Clock size={11} />
+                            <span>
+                              {app.days_since_activity >= 14
+                                ? `Stale Lead: ${app.days_since_activity}d inactive`
+                                : `Stalled: ${app.days_since_activity} days without update`}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Quick-Action: Draft Follow-Up Directly on Stalled Cards */}
+                        {app.status !== 'REJECTED' && app.status !== 'OFFER' && app.days_since_activity >= 3 && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenFollowUp(app)}
+                            style={styles.cardFollowUpBtn}
+                            title="Draft a professional follow-up email tailored to this application stage"
+                          >
+                            <Sparkles size={12} color="#7c3aed" />
+                            <span>Draft Follow-Up</span>
+                          </button>
+                        )}
+
                         {/* Card Actions Footer */}
                         <div style={styles.cardFooter}>
                           {/* Quick Stage Mover */}
@@ -685,9 +805,20 @@ export default function Tracker() {
                 </div>
                 <p style={styles.modalSub}>{activeModalApp.company_name}</p>
               </div>
-              <button onClick={() => setActiveModalApp(null)} style={styles.modalCloseBtn}>
-                <X size={20} />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => handleOpenFollowUp(activeModalApp)}
+                  style={styles.modalFollowUpBtn}
+                  title="Draft context-aware follow-up email"
+                >
+                  <Sparkles size={13} color="#7c3aed" />
+                  <span>Draft Follow-Up</span>
+                </button>
+                <button onClick={() => setActiveModalApp(null)} style={styles.modalCloseBtn}>
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             <div style={styles.modalBodyTwoCol}>
@@ -1075,6 +1206,150 @@ export default function Tracker() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Follow-Up Email Drafter */}
+      {followUpApp && (
+        <div style={styles.modalOverlay} onClick={() => setFollowUpApp(null)}>
+          <div style={styles.followUpModalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <h2 style={styles.modalTitle}>Professional Follow-Up Assistant</h2>
+                  <span style={styles.followUpStageTag}>{followUpApp.status}</span>
+                </div>
+                <p style={styles.modalSub}>
+                  {followUpApp.job_title} at {followUpApp.company_name}
+                </p>
+              </div>
+              <button onClick={() => setFollowUpApp(null)} style={styles.modalCloseBtn}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={styles.followUpModalBody}>
+              {/* Tone Selector */}
+              <div style={styles.toneSelectorRow}>
+                <span style={styles.toneLabel}>Email Tone:</span>
+                <button
+                  type="button"
+                  onClick={() => handleToneChange('polite')}
+                  style={{
+                    ...styles.toneBtn,
+                    ...(followUpTone === 'polite' ? styles.toneBtnActive : {}),
+                  }}
+                >
+                  Polite & Enthusiastic
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToneChange('professional')}
+                  style={{
+                    ...styles.toneBtn,
+                    ...(followUpTone === 'professional' ? styles.toneBtnActive : {}),
+                  }}
+                >
+                  Professional & Balanced
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToneChange('firm')}
+                  style={{
+                    ...styles.toneBtn,
+                    ...(followUpTone === 'firm' ? styles.toneBtnActive : {}),
+                  }}
+                >
+                  Firm & Time-Sensitive
+                </button>
+              </div>
+
+              {/* Recipient */}
+              {followUpRecipient && (
+                <div style={styles.recipientRow}>
+                  <Mail size={13} color="#6b7280" />
+                  <span style={styles.recipientLabel}>Recipient:</span>
+                  <span style={styles.recipientVal}>{followUpRecipient}</span>
+                </div>
+              )}
+
+              {/* Subject */}
+              <div style={styles.followUpFieldGroup}>
+                <label style={styles.formLabel}>Subject Line</label>
+                <input
+                  type="text"
+                  value={followUpSubject}
+                  onChange={(e) => setFollowUpSubject(e.target.value)}
+                  style={styles.formInput}
+                />
+              </div>
+
+              {/* Body */}
+              <div style={styles.followUpFieldGroup}>
+                <label style={styles.formLabel}>Message Body</label>
+                {followUpLoading ? (
+                  <div style={styles.draftLoadingBox}>
+                    <Loader2 size={24} className="spin" color="#2563eb" />
+                    <span>Personalizing follow-up template...</span>
+                  </div>
+                ) : (
+                  <textarea
+                    rows={9}
+                    value={followUpBody}
+                    onChange={(e) => setFollowUpBody(e.target.value)}
+                    style={styles.formTextarea}
+                  />
+                )}
+              </div>
+
+              {/* Strict Candidate Consent Notice */}
+              <div style={styles.consentNotice}>
+                <CheckCircle2 size={15} color="#059669" />
+                <span>
+                  <strong>Strict Candidate-Consent Enforced:</strong> Unified Job Search never sends emails automatically. You retain full control to edit, copy, or send through your default email client.
+                </span>
+              </div>
+
+              {/* Actions Footer */}
+              <div style={styles.followUpActionsRow}>
+                <button
+                  type="button"
+                  onClick={handleCopyFollowUp}
+                  style={styles.copyBtn}
+                >
+                  {followUpCopied ? <Check size={15} color="#059669" /> : <Copy size={15} />}
+                  <span>{followUpCopied ? 'Copied to Clipboard!' : 'Copy to Clipboard'}</span>
+                </button>
+
+                {followUpMailto && (
+                  <a
+                    href={followUpMailto}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={styles.mailtoBtn}
+                  >
+                    <ExternalLink size={15} />
+                    <span>Open in Email Client</span>
+                  </a>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleLogFollowUp}
+                  disabled={followUpLogging}
+                  style={styles.logTimelineBtn}
+                  title="Record follow-up outreach in application timeline"
+                >
+                  {followUpLogging ? (
+                    <Loader2 size={15} className="spin" />
+                  ) : (
+                    <CheckCircle2 size={15} />
+                  )}
+                  <span>Log Follow-Up Sent</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1777,5 +2052,211 @@ const styles = {
   modalBody: {
     padding: '24px',
     overflowY: 'auto',
+  },
+  cardStalledPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#b45309',
+    backgroundColor: '#fffbeb',
+    border: '1px solid #fde68a',
+    padding: '3px 8px',
+    borderRadius: '12px',
+    width: 'fit-content',
+  },
+  cardStaleLeadPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#b91c1c',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    padding: '3px 8px',
+    borderRadius: '12px',
+    width: 'fit-content',
+  },
+  cardFollowUpBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '5px',
+    padding: '4px 8px',
+    backgroundColor: '#f5f3ff',
+    border: '1px solid #ddd6fe',
+    borderRadius: '6px',
+    color: '#6d28d9',
+    fontSize: '11px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    width: '100%',
+  },
+  modalFollowUpBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 12px',
+    backgroundColor: '#f5f3ff',
+    border: '1px solid #ddd6fe',
+    borderRadius: '6px',
+    color: '#6d28d9',
+    fontSize: '12px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
+  followUpModalContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    width: '100%',
+    maxWidth: '680px',
+    maxHeight: '90vh',
+    display: 'flex',
+    flexDirection: 'column',
+    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+    overflow: 'hidden',
+  },
+  followUpModalBody: {
+    padding: '20px 24px 24px',
+    overflowY: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '14px',
+  },
+  followUpStageTag: {
+    fontSize: '11px',
+    fontWeight: '700',
+    padding: '2px 8px',
+    borderRadius: '12px',
+    backgroundColor: '#eff6ff',
+    color: '#2563eb',
+    border: '1px solid #bfdbfe',
+  },
+  followUpFieldGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  followUpActionsRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '10px',
+    marginTop: '6px',
+    flexWrap: 'wrap',
+  },
+  logTimelineBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 14px',
+    backgroundColor: '#059669',
+    border: 'none',
+    borderRadius: '8px',
+    color: '#ffffff',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  draftLoadingBox: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    padding: '36px 16px',
+    backgroundColor: '#f9fafb',
+    borderRadius: '8px',
+    border: '1px solid #e5e7eb',
+    color: '#6b7280',
+    fontSize: '13px',
+  },
+  toneSelectorRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flexWrap: 'wrap',
+  },
+  toneLabel: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#374151',
+  },
+  toneBtn: {
+    padding: '6px 12px',
+    borderRadius: '6px',
+    border: '1px solid #d1d5db',
+    backgroundColor: '#ffffff',
+    fontSize: '12px',
+    fontWeight: '500',
+    color: '#4b5563',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
+  toneBtnActive: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#2563eb',
+    color: '#2563eb',
+    fontWeight: '600',
+  },
+  recipientRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 10px',
+    backgroundColor: '#f9fafb',
+    borderRadius: '6px',
+    border: '1px solid #e5e7eb',
+    fontSize: '12px',
+  },
+  recipientLabel: {
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  recipientVal: {
+    color: '#111827',
+    fontWeight: '600',
+  },
+  consentNotice: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '8px',
+    padding: '10px 14px',
+    backgroundColor: '#ecfdf5',
+    border: '1px solid #a7f3d0',
+    borderRadius: '8px',
+    fontSize: '12px',
+    color: '#065f46',
+    lineHeight: 1.4,
+  },
+  copyBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 14px',
+    backgroundColor: '#ffffff',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontWeight: '500',
+    color: '#374151',
+    cursor: 'pointer',
+  },
+  mailtoBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 14px',
+    backgroundColor: '#2563eb',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontWeight: '600',
+    color: '#ffffff',
+    textDecoration: 'none',
+    cursor: 'pointer',
   },
 };

@@ -1,12 +1,31 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
-import { Briefcase, User as UserIcon, LogOut, LayoutDashboard, Kanban, Mail } from 'lucide-react';
+import { Briefcase, User as UserIcon, LogOut, LayoutDashboard, Kanban, Mail, Bell } from 'lucide-react';
+import { getRemindersAlertsApi } from '../../services/api';
 
 export default function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [alertCount, setAlertCount] = useState(0);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let isMounted = true;
+    getRemindersAlertsApi()
+      .then((data) => {
+        if (isMounted) {
+          setAlertCount(data?.total_alerts || 0);
+        }
+      })
+      .catch(() => {
+        // silently fallback
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthenticated, location.pathname]);
 
   const handleLogout = async () => {
     await logout();
@@ -73,6 +92,24 @@ export default function Navbar() {
             </Link>
 
             <Link
+              to="/reminders"
+              style={{
+                ...styles.navLink,
+                ...(location.pathname === '/reminders' ? styles.navLinkActive : {}),
+              }}
+            >
+              <div style={styles.navIconWrap}>
+                <Bell size={16} />
+                {alertCount > 0 && (
+                  <span style={styles.badgeCount}>
+                    {alertCount > 9 ? '9+' : alertCount}
+                  </span>
+                )}
+              </div>
+              <span>Reminders</span>
+            </Link>
+
+            <Link
               to="/profile"
               style={{
                 ...styles.navLink,
@@ -82,7 +119,6 @@ export default function Navbar() {
               <UserIcon size={16} />
               <span>Profile</span>
             </Link>
-
 
             <div style={styles.userSection}>
               <span style={styles.userName} title={user?.email}>
@@ -194,5 +230,28 @@ const styles = {
     fontWeight: '500',
     cursor: 'pointer',
     transition: 'background-color 0.15s ease',
+  },
+  navIconWrap: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeCount: {
+    position: 'absolute',
+    top: '-6px',
+    right: '-8px',
+    backgroundColor: '#dc2626',
+    color: '#ffffff',
+    fontSize: '10px',
+    fontWeight: '700',
+    minWidth: '16px',
+    height: '16px',
+    borderRadius: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 3px',
+    border: '2px solid #ffffff',
   },
 };

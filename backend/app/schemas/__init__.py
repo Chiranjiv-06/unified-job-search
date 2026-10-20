@@ -44,6 +44,13 @@ from app.schemas.matching import (
     JobMatchRankingItem,
     JobMatchRankingsResponse
 )
+from app.schemas.reminder import (
+    ReminderAlertResponse,
+    AlertsListResponse,
+    DraftFollowUpRequest,
+    FollowUpDraftResponse,
+    LogFollowUpRequest
+)
 
 __all__ = [
     "UserRegister",
@@ -83,6 +90,11 @@ __all__ = [
     "MatchBreakdownResponse",
     "JobMatchRankingItem",
     "JobMatchRankingsResponse",
+    "ReminderAlertResponse",
+    "AlertsListResponse",
+    "DraftFollowUpRequest",
+    "FollowUpDraftResponse",
+    "LogFollowUpRequest",
 ]
 
 
