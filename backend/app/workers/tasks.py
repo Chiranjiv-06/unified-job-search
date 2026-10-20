@@ -2,7 +2,7 @@ import logging
 from typing import Dict, Any, Optional
 from app.workers.celery_app import celery_app
 from app.db.session import SessionLocal
-from app.schemas.email_event import EmailWebhookPayload
+from app.schemas.email_event import EmailIngestRequest, EmailWebhookPayload
 from app.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ def process_incoming_email_task(self, email_data: Dict[str, Any], db_session=Non
     close_on_finish = db_session is None
     try:
         logger.info(f"Processing incoming email message_id={email_data.get('message_id')}")
-        payload = EmailWebhookPayload.model_validate(email_data)
+        payload = EmailIngestRequest.model_validate(email_data)
         
         email_event = EmailService.ingest_email_event(db=db, payload=payload)
         
@@ -30,7 +30,8 @@ def process_incoming_email_task(self, email_data: Dict[str, Any], db_session=Non
             "email_event_id": email_event.id,
             "message_id": email_event.message_id,
             "linked_application_id": email_event.application_id,
-            "detected_category": email_event.detected_category.value
+            "detected_category": email_event.detected_category.value,
+            "parsed_details": email_event.parsed_details or {}
         }
         logger.info(f"Successfully processed email event: {result}")
         return result

@@ -24,8 +24,11 @@ from app.schemas.verification import (
     JobVerificationResponse
 )
 from app.schemas.email_event import (
+    EmailIngestRequest,
     EmailWebhookPayload,
+    EmailLinkApplicationRequest,
     EmailEventResponse,
+    EmailEventListResponse,
     EmailIngestTaskResponse
 )
 from app.schemas.job import (
@@ -65,8 +68,11 @@ __all__ = [
     "VerificationRequest",
     "VerificationResponse",
     "JobVerificationResponse",
+    "EmailIngestRequest",
     "EmailWebhookPayload",
+    "EmailLinkApplicationRequest",
     "EmailEventResponse",
+    "EmailEventListResponse",
     "EmailIngestTaskResponse",
     "JobBase",
     "JobCreate",

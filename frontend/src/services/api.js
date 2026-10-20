@@ -205,6 +205,24 @@ export const trackJobApplyApi = async (jobId, data = {}) => {
   return response.data;
 };
 
+// Email Intelligence & Ingestion endpoints
+export const getEmailsApi = async (params = {}) => {
+  const response = await api.get('/api/v1/emails', { params });
+  return response.data;
+};
+
+export const ingestEmailApi = async (data) => {
+  const response = await api.post('/api/v1/emails/ingest', data);
+  return response.data;
+};
+
+export const linkEmailToApplicationApi = async (emailId, applicationId) => {
+  const response = await api.post(`/api/v1/emails/${emailId}/link-application`, {
+    application_id: applicationId,
+  });
+  return response.data;
+};
+
 export default api;
 
 

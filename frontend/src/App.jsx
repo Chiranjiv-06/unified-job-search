@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import JobDiscovery from './pages/JobDiscovery';
 import Tracker from './pages/Tracker';
+import EmailHub from './pages/EmailHub';
 import './App.css';
 
 function App() {
@@ -45,6 +46,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <Tracker />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/emails"
+                element={
+                  <ProtectedRoute>
+                    <EmailHub />
                   </ProtectedRoute>
                 }
               />

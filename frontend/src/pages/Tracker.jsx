@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   getApplicationsApi,
   getPipelineMetricsApi,
+  getEmailsApi,
   createApplicationApi,
   updateApplicationStageApi,
   updateApplicationDetailsApi,
@@ -41,7 +43,9 @@ const STAGES = [
 ];
 
 export default function Tracker() {
+  const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
+  const [emails, setEmails] = useState([]);
   const [metrics, setMetrics] = useState({
     total_applications: 0,
     active_interviews: 0,
@@ -87,11 +91,13 @@ export default function Tracker() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const [appsData, metricsData] = await Promise.all([
+      const [appsData, metricsData, emailsData] = await Promise.all([
         getApplicationsApi({ limit: 100 }),
-        getPipelineMetricsApi()
+        getPipelineMetricsApi(),
+        getEmailsApi({ limit: 100 })
       ]);
       setApplications(appsData.items || []);
+      setEmails(emailsData.items || []);
       setMetrics(metricsData || {
         total_applications: 0,
         active_interviews: 0,
@@ -283,6 +289,17 @@ export default function Tracker() {
       return matchesSearch && matchesPlatform;
     });
   }, [applications, searchTerm, platformFilter]);
+
+  // Map of application ID to count of matched emails
+  const emailCounts = useMemo(() => {
+    const counts = {};
+    emails.forEach((em) => {
+      if (em.application_id) {
+        counts[em.application_id] = (counts[em.application_id] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [emails]);
 
   // Group applications by stage
   const appsByStage = useMemo(() => {
@@ -579,6 +596,23 @@ export default function Tracker() {
                           <div style={styles.cardResumeBadge}>
                             <FileText size={11} color="#4b5563" />
                             <span>{app.resume_version}</span>
+                          </div>
+                        )}
+
+                        {/* Incoming Communications Badge */}
+                        {emailCounts[app.id] > 0 && (
+                          <div
+                            style={styles.cardEmailBadge}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate('/emails');
+                            }}
+                            title={`${emailCounts[app.id]} recruitment communication(s) linked. Click to inspect in Email Hub.`}
+                          >
+                            <Mail size={11} color="#1d4ed8" />
+                            <span>
+                              {emailCounts[app.id]} Incoming Comm{emailCounts[app.id] === 1 ? '' : 's'}
+                            </span>
                           </div>
                         )}
 
@@ -1429,6 +1463,21 @@ const styles = {
     padding: '2px 6px',
     borderRadius: '4px',
     width: 'fit-content',
+  },
+  cardEmailBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#1d4ed8',
+    backgroundColor: '#eff6ff',
+    border: '1px solid #bfdbfe',
+    padding: '3px 7px',
+    borderRadius: '5px',
+    cursor: 'pointer',
+    width: 'fit-content',
+    transition: 'all 0.15s ease',
   },
   cardFooter: {
     display: 'flex',
