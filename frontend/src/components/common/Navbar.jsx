@@ -40,6 +40,17 @@ export default function Navbar() {
             </Link>
 
             <Link
+              to="/jobs"
+              style={{
+                ...styles.navLink,
+                ...(location.pathname === '/jobs' ? styles.navLinkActive : {}),
+              }}
+            >
+              <Briefcase size={16} />
+              <span>Jobs</span>
+            </Link>
+
+            <Link
               to="/profile"
               style={{
                 ...styles.navLink,
@@ -49,6 +60,7 @@ export default function Navbar() {
               <UserIcon size={16} />
               <span>Profile</span>
             </Link>
+
 
             <div style={styles.userSection}>
               <span style={styles.userName} title={user?.email}>

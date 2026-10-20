@@ -59,13 +59,15 @@ export default function Dashboard() {
             <div style={{ ...styles.moduleIcon, backgroundColor: '#fef3c7', color: '#b45309' }}>
               <FileText size={20} />
             </div>
-            <span style={styles.statusBadgeUpcoming}>Phase 4</span>
+            <span style={styles.statusBadgeCompleted}>Active</span>
           </div>
           <h3 style={styles.moduleTitle}>Resume Management</h3>
           <p style={styles.moduleDesc}>
-            PDF resume upload, text extraction with PyPDF, and tailored improvement suggestions.
+            PDF resume upload, text extraction with PyPDF, and candidate-reviewed skill extraction.
           </p>
-          <span style={styles.mutedText}>Next module</span>
+          <Link to="/profile" style={styles.cardLink}>
+            Upload & extract skills →
+          </Link>
         </div>
 
         <div style={styles.moduleCard}>
@@ -73,15 +75,18 @@ export default function Dashboard() {
             <div style={{ ...styles.moduleIcon, backgroundColor: '#f3e8ff', color: '#7e22ce' }}>
               <Search size={20} />
             </div>
-            <span style={styles.statusBadgeUpcoming}>Phase 5</span>
+            <span style={styles.statusBadgeCompleted}>Active</span>
           </div>
-          <h3 style={styles.moduleTitle}>Job Discovery & Matching</h3>
+          <h3 style={styles.moduleTitle}>Job Discovery & Records</h3>
           <p style={styles.moduleDesc}>
-            Import jobs, verify official career portals, and run transparent rule-based matching.
+            Search opportunities, filter by stack and location, import jobs from URLs, or add manually.
           </p>
-          <span style={styles.mutedText}>Planned</span>
+          <Link to="/jobs" style={styles.cardLink}>
+            Explore jobs →
+          </Link>
         </div>
       </div>
+
 
       {/* Backend & DB Health Monitor */}
       <div style={styles.statusSection}>

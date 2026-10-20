@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from app.models.user import User
     from app.models.company import Company
     from app.models.email_event import EmailEvent
+    from app.models.job import Job
 
 class Application(Base):
     __tablename__ = "applications"
@@ -24,6 +25,12 @@ class Application(Base):
         nullable=True,
         index=True
     )
+    job_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
     job_title: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     job_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_platform: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
@@ -52,10 +59,12 @@ class Application(Base):
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="applications")
     company: Mapped[Optional["Company"]] = relationship("Company", back_populates="applications")
+    job: Mapped[Optional["Job"]] = relationship("Job", back_populates="applications")
     email_events: Mapped[List["EmailEvent"]] = relationship(
         "EmailEvent",
         back_populates="application"
     )
+
 
     def __repr__(self) -> str:
         return f"<Application id={self.id} job_title={self.job_title} status={self.status}>"

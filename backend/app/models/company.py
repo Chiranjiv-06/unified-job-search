@@ -8,6 +8,8 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.application import Application
     from app.models.verification import VerificationLog
+    from app.models.job import Job
+
 
 class Company(Base):
     __tablename__ = "companies"
@@ -45,6 +47,11 @@ class Company(Base):
         cascade="all, delete-orphan",
         order_by="desc(VerificationLog.checked_at)"
     )
+    jobs: Mapped[List["Job"]] = relationship(
+        "Job",
+        back_populates="company"
+    )
+
 
     def __repr__(self) -> str:
         return f"<Company id={self.id} name={self.name} verified={self.is_verified}>"

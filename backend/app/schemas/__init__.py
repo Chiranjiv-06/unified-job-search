@@ -25,6 +25,14 @@ from app.schemas.email_event import (
     EmailEventResponse,
     EmailIngestTaskResponse
 )
+from app.schemas.job import (
+    JobBase,
+    JobCreate,
+    JobUpdate,
+    JobImportRequest,
+    JobResponse,
+    JobListResponse
+)
 
 __all__ = [
     "UserRegister",
@@ -49,4 +57,11 @@ __all__ = [
     "EmailWebhookPayload",
     "EmailEventResponse",
     "EmailIngestTaskResponse",
+    "JobBase",
+    "JobCreate",
+    "JobUpdate",
+    "JobImportRequest",
+    "JobResponse",
+    "JobListResponse",
 ]
+

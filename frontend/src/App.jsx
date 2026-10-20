@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
+import JobDiscovery from './pages/JobDiscovery';
 import './App.css';
 
 function App() {
@@ -31,6 +32,14 @@ function App() {
                 }
               />
               <Route
+                path="/jobs"
+                element={
+                  <ProtectedRoute>
+                    <JobDiscovery />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/profile"
                 element={
                   <ProtectedRoute>
@@ -38,6 +47,7 @@ function App() {
                   </ProtectedRoute>
                 }
               />
+
 
               {/* Fallback route */}
               <Route path="*" element={<Navigate to="/" replace />} />

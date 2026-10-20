@@ -111,5 +111,37 @@ export const confirmSkillsApi = async (skills) => {
   return response.data;
 };
 
+// Job Discovery & Records endpoints
+export const getJobsApi = async (params = {}) => {
+  const response = await api.get('/api/jobs', { params });
+  return response.data;
+};
+
+export const getJobDetailsApi = async (jobId) => {
+  const response = await api.get(`/api/jobs/${jobId}`);
+  return response.data;
+};
+
+export const createJobApi = async (jobData) => {
+  const response = await api.post('/api/jobs', jobData);
+  return response.data;
+};
+
+export const importJobUrlApi = async (urlData) => {
+  const response = await api.post('/api/jobs/import-url', urlData);
+  return response.data;
+};
+
+export const updateJobApi = async (jobId, jobData) => {
+  const response = await api.put(`/api/jobs/${jobId}`, jobData);
+  return response.data;
+};
+
+export const deleteJobApi = async (jobId) => {
+  const response = await api.delete(`/api/jobs/${jobId}`);
+  return response.data;
+};
+
 export default api;
+
 

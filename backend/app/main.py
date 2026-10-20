@@ -62,11 +62,14 @@ def health_check_db(db: Session = Depends(get_db)):
 # Include API Routers
 from app.api.routes.auth import router as auth_router
 from app.api.routes.profile import router as profile_router
+from app.api.routes.jobs import router as jobs_router
 from app.api.v1 import api_v1_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
+app.include_router(jobs_router, prefix="/api")
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
+
 
 
 

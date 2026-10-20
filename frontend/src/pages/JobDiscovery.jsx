@@ -1,0 +1,1136 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  getJobsApi,
+  createJobApi,
+  importJobUrlApi
+} from '../services/api';
+import {
+  Briefcase,
+  Search,
+  MapPin,
+  Building2,
+  ExternalLink,
+  Plus,
+  Globe,
+  Layers,
+  X,
+  Loader2,
+  IndianRupee,
+  CheckCircle2,
+  AlertCircle
+} from 'lucide-react';
+
+
+export default function JobDiscovery() {
+  const [jobs, setJobs] = useState([]);
+  const [totalJobs, setTotalJobs] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
+
+  // Search & Filter state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [workModeFilter, setWorkModeFilter] = useState('Any');
+  const [skillFilter, setSkillFilter] = useState('');
+
+  // Modals state
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [selectedJob, setSelectedJob] = useState(null);
+
+  // Form states for manual job
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualCompany, setManualCompany] = useState('');
+  const [manualDesc, setManualDesc] = useState('');
+  const [manualLocation, setManualLocation] = useState('');
+  const [manualWorkMode, setManualWorkMode] = useState('Remote');
+  const [manualExperienceLevel, setManualExperienceLevel] = useState('Entry-Level');
+  const [manualExperienceYears, setManualExperienceYears] = useState('0');
+  const [manualSalary, setManualSalary] = useState('');
+  const [manualSkills, setManualSkills] = useState('');
+  const [manualSourceUrl, setManualSourceUrl] = useState('');
+  const [submittingManual, setSubmittingManual] = useState(false);
+
+  // Form state for URL import
+  const [importUrl, setImportUrl] = useState('');
+  const [importingUrl, setImportingUrl] = useState(false);
+
+  const fetchJobs = useCallback(async () => {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const params = {};
+      if (searchTerm.trim()) params.q = searchTerm.trim();
+      if (locationFilter.trim()) params.location = locationFilter.trim();
+      if (workModeFilter && workModeFilter !== 'Any') params.work_mode = workModeFilter;
+      if (skillFilter.trim()) params.skill = skillFilter.trim();
+
+      const data = await getJobsApi(params);
+      setJobs(data.jobs || []);
+      setTotalJobs(data.total || 0);
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to fetch job opportunities.');
+    } finally {
+      setLoading(false);
+    }
+  }, [searchTerm, locationFilter, workModeFilter, skillFilter]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchJobs();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [fetchJobs]);
+
+  const handleManualSubmit = async (e) => {
+    e.preventDefault();
+    if (!manualTitle.trim() || !manualCompany.trim()) {
+      setErrorMsg('Job title and company name are required.');
+      return;
+    }
+    setSubmittingManual(true);
+    setErrorMsg(null);
+
+    const skillsArray = manualSkills
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    try {
+      await createJobApi({
+        title: manualTitle.trim(),
+        company_name: manualCompany.trim(),
+        description: manualDesc.trim() || null,
+        location: manualLocation.trim() || null,
+        work_mode: manualWorkMode,
+        experience_level: manualExperienceLevel,
+        experience_years_required: parseFloat(manualExperienceYears) || 0.0,
+        salary_range: manualSalary.trim() || null,
+        required_skills: skillsArray,
+        source_url: manualSourceUrl.trim() || null,
+        source_platform: 'Manual Entry'
+      });
+
+      setSuccessMsg('Job posting created successfully!');
+      setTimeout(() => setSuccessMsg(null), 4000);
+      setShowAddModal(false);
+      // Reset form
+      setManualTitle('');
+      setManualCompany('');
+      setManualDesc('');
+      setManualLocation('');
+      setManualSalary('');
+      setManualSkills('');
+      setManualSourceUrl('');
+      fetchJobs();
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to create job posting.');
+    } finally {
+      setSubmittingManual(false);
+    }
+  };
+
+  const handleImportSubmit = async (e) => {
+    e.preventDefault();
+    const url = importUrl.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      setErrorMsg('Please enter a valid URL starting with http:// or https://');
+      return;
+    }
+    setImportingUrl(true);
+    setErrorMsg(null);
+
+    try {
+      const imported = await importJobUrlApi({ url });
+      setSuccessMsg(`Imported "${imported.title}" at ${imported.company_name}!`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+      setShowImportModal(false);
+      setImportUrl('');
+      fetchJobs();
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to import job from URL.');
+    } finally {
+      setImportingUrl(false);
+    }
+  };
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setLocationFilter('');
+    setWorkModeFilter('Any');
+    setSkillFilter('');
+  };
+
+  return (
+    <div style={styles.container}>
+      {/* Header */}
+      <div style={styles.pageHeader}>
+        <div>
+          <h1 style={styles.pageTitle}>Job Discovery & Records</h1>
+          <p style={styles.pageSub}>
+            Discover verified tech opportunities, import job links, and track skill requirements
+          </p>
+        </div>
+        <div style={styles.headerActions}>
+          <button
+            onClick={() => setShowImportModal(true)}
+            style={styles.outlineBtn}
+          >
+            <Globe size={16} />
+            <span>Import from URL</span>
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            style={styles.primaryBtn}
+          >
+            <Plus size={16} />
+            <span>Add Job Manually</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Notifications */}
+      {successMsg && (
+        <div style={styles.successBanner}>
+          <CheckCircle2 size={18} color="#059669" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div style={styles.errorBanner}>
+          <AlertCircle size={18} color="#b91c1c" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* Search and Filters Bar */}
+      <div style={styles.filterCard}>
+        <div style={styles.searchRow}>
+          <div style={styles.searchInputWrapper}>
+            <Search size={18} color="#9ca3af" style={styles.searchIcon} />
+            <input
+              type="text"
+              placeholder="Search by role, company name, or keywords (e.g. FastAPI, React)..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={styles.searchInput}
+            />
+          </div>
+        </div>
+
+        <div style={styles.filterRow}>
+          <div style={styles.filterGroup}>
+            <MapPin size={15} color="#6b7280" />
+            <input
+              type="text"
+              placeholder="Location (e.g. Bengaluru)"
+              value={locationFilter}
+              onChange={(e) => setLocationFilter(e.target.value)}
+              style={styles.filterInput}
+            />
+          </div>
+
+          <div style={styles.filterGroup}>
+            <Layers size={15} color="#6b7280" />
+            <input
+              type="text"
+              placeholder="Skill filter (e.g. Docker)"
+              value={skillFilter}
+              onChange={(e) => setSkillFilter(e.target.value)}
+              style={styles.filterInput}
+            />
+          </div>
+
+          <div style={styles.filterGroup}>
+            <Briefcase size={15} color="#6b7280" />
+            <select
+              value={workModeFilter}
+              onChange={(e) => setWorkModeFilter(e.target.value)}
+              style={styles.filterSelect}
+            >
+              <option value="Any">All Work Modes</option>
+              <option value="Remote">Remote</option>
+              <option value="Hybrid">Hybrid</option>
+              <option value="On-site">On-site</option>
+            </select>
+          </div>
+
+          {(searchTerm || locationFilter || workModeFilter !== 'Any' || skillFilter) && (
+            <button onClick={handleClearFilters} style={styles.clearBtn}>
+              <X size={14} />
+              <span>Clear</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Results Header */}
+      <div style={styles.resultsInfoRow}>
+        <span style={styles.resultsCount}>
+          Showing {jobs.length} of {totalJobs} {totalJobs === 1 ? 'Opportunity' : 'Opportunities'}
+        </span>
+      </div>
+
+      {/* Job Cards List */}
+      {loading ? (
+        <div style={styles.loadingContainer}>
+          <Loader2 size={32} className="spin" color="#2563eb" />
+          <p>Loading job postings...</p>
+        </div>
+      ) : jobs.length === 0 ? (
+        <div style={styles.emptyState}>
+          <Briefcase size={44} color="#9ca3af" />
+          <h3 style={styles.emptyTitle}>No matching job opportunities found</h3>
+          <p style={styles.emptySub}>
+            Try adjusting your search criteria, or add a new job manually or by URL.
+          </p>
+          <div style={{ marginTop: '16px', display: 'flex', gap: '10px' }}>
+            <button onClick={() => setShowAddModal(true)} style={styles.primaryBtn}>
+              <Plus size={16} />
+              <span>Add Job</span>
+            </button>
+            <button onClick={() => setShowImportModal(true)} style={styles.outlineBtn}>
+              <Globe size={16} />
+              <span>Import URL</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={styles.jobGrid}>
+          {jobs.map((job) => (
+            <div key={job.id} style={styles.jobCard}>
+              <div style={styles.jobCardHeader}>
+                <div>
+                  <h3 style={styles.jobTitle}>{job.title}</h3>
+                  <div style={styles.companyRow}>
+                    <Building2 size={15} color="#4b5563" />
+                    <span style={styles.companyName}>{job.company_name}</span>
+                    <span style={styles.platformBadge}>{job.source_platform || 'Portal'}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.metaRow}>
+                {job.location && (
+                  <div style={styles.metaItem}>
+                    <MapPin size={13} color="#6b7280" />
+                    <span>{job.location}</span>
+                  </div>
+                )}
+                {job.work_mode && (
+                  <div style={styles.metaBadge}>
+                    <span>{job.work_mode}</span>
+                  </div>
+                )}
+                {job.salary_range && (
+                  <div style={styles.metaItem}>
+                    <IndianRupee size={13} color="#059669" />
+                    <span style={{ color: '#059669', fontWeight: '500' }}>{job.salary_range}</span>
+                  </div>
+                )}
+                {job.experience_level && (
+                  <div style={styles.metaItem}>
+                    <Briefcase size={13} color="#6b7280" />
+                    <span>{job.experience_level}</span>
+                  </div>
+                )}
+              </div>
+
+              {job.description && (
+                <p style={styles.jobSnippet}>
+                  {job.description.slice(0, 140)}...
+                </p>
+              )}
+
+              {/* Skills Tags */}
+              {job.required_skills && job.required_skills.length > 0 && (
+                <div style={styles.skillsTagList}>
+                  {job.required_skills.slice(0, 5).map((skill, sIdx) => (
+                    <span key={sIdx} style={styles.skillTag}>
+                      {skill}
+                    </span>
+                  ))}
+                  {job.required_skills.length > 5 && (
+                    <span style={styles.moreSkillsTag}>
+                      +{job.required_skills.length - 5} more
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div style={styles.jobCardFooter}>
+                <button
+                  onClick={() => setSelectedJob(job)}
+                  style={styles.detailsBtn}
+                >
+                  View Details
+                </button>
+                {job.source_url && (
+                  <a
+                    href={job.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={styles.externalLinkBtn}
+                    title="Open original job link"
+                  >
+                    <span>Source</span>
+                    <ExternalLink size={13} />
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modal: Job Details */}
+      {selectedJob && (
+        <div style={styles.modalOverlay} onClick={() => setSelectedJob(null)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h2 style={styles.modalTitle}>{selectedJob.title}</h2>
+                <p style={styles.modalSub}>{selectedJob.company_name}</p>
+              </div>
+              <button onClick={() => setSelectedJob(null)} style={styles.modalCloseBtn}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <div style={styles.modalMetaGrid}>
+                <div>
+                  <span style={styles.modalMetaLabel}>Location</span>
+                  <span style={styles.modalMetaVal}>{selectedJob.location || 'Not Specified'}</span>
+                </div>
+                <div>
+                  <span style={styles.modalMetaLabel}>Work Mode</span>
+                  <span style={styles.modalMetaVal}>{selectedJob.work_mode || 'Any'}</span>
+                </div>
+                <div>
+                  <span style={styles.modalMetaLabel}>Experience</span>
+                  <span style={styles.modalMetaVal}>{selectedJob.experience_level || 'Entry-Level'} ({selectedJob.experience_years_required || 0} yrs)</span>
+                </div>
+                <div>
+                  <span style={styles.modalMetaLabel}>Salary Range</span>
+                  <span style={styles.modalMetaVal}>{selectedJob.salary_range || 'Not Disclosed'}</span>
+                </div>
+              </div>
+
+              {selectedJob.required_skills && selectedJob.required_skills.length > 0 && (
+                <div style={{ marginTop: '16px' }}>
+                  <span style={styles.modalMetaLabel}>Required Technical Skills</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                    {selectedJob.required_skills.map((sk, i) => (
+                      <span key={i} style={styles.skillTag}>
+                        {sk}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedJob.description && (
+                <div style={{ marginTop: '20px' }}>
+                  <span style={styles.modalMetaLabel}>Job Description</span>
+                  <div style={styles.modalDescriptionText}>
+                    {selectedJob.description}
+                  </div>
+                </div>
+              )}
+
+              {selectedJob.source_url && (
+                <div style={{ marginTop: '20px' }}>
+                  <a
+                    href={selectedJob.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={styles.applyExternalBtn}
+                  >
+                    <span>Visit Original Job Portal</span>
+                    <ExternalLink size={15} />
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add Job Manually */}
+      {showAddModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowAddModal(false)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h2 style={styles.modalTitle}>Add Job Opportunity</h2>
+                <p style={styles.modalSub}>Enter role requirements and company details manually</p>
+              </div>
+              <button onClick={() => setShowAddModal(false)} style={styles.modalCloseBtn}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleManualSubmit} style={styles.modalBody}>
+              <div style={styles.formRow}>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Job Title *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Backend Developer"
+                    value={manualTitle}
+                    onChange={(e) => setManualTitle(e.target.value)}
+                    style={styles.formInput}
+                  />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Company Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Google, Infosys, TechCorp"
+                    value={manualCompany}
+                    onChange={(e) => setManualCompany(e.target.value)}
+                    style={styles.formInput}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Location</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Bengaluru, Pune, Remote"
+                    value={manualLocation}
+                    onChange={(e) => setManualLocation(e.target.value)}
+                    style={styles.formInput}
+                  />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Work Mode</label>
+                  <select
+                    value={manualWorkMode}
+                    onChange={(e) => setManualWorkMode(e.target.value)}
+                    style={styles.formInput}
+                  >
+                    <option value="Remote">Remote</option>
+                    <option value="Hybrid">Hybrid</option>
+                    <option value="On-site">On-site</option>
+                    <option value="Any">Any</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Experience Level</label>
+                  <select
+                    value={manualExperienceLevel}
+                    onChange={(e) => setManualExperienceLevel(e.target.value)}
+                    style={styles.formInput}
+                  >
+                    <option value="Intern">Intern</option>
+                    <option value="Entry-Level">Entry-Level (0-2 yrs)</option>
+                    <option value="Mid-Level">Mid-Level (2-5 yrs)</option>
+                    <option value="Senior">Senior (5+ yrs)</option>
+                  </select>
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Min Experience (Years)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={manualExperienceYears}
+                    onChange={(e) => setManualExperienceYears(e.target.value)}
+                    style={styles.formInput}
+                  />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.formLabel}>Salary Range (optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 8 - 12 LPA"
+                    value={manualSalary}
+                    onChange={(e) => setManualSalary(e.target.value)}
+                    style={styles.formInput}
+                  />
+                </div>
+              </div>
+
+
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Required Skills (comma-separated)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Python, FastAPI, Docker, PostgreSQL"
+                  value={manualSkills}
+                  onChange={(e) => setManualSkills(e.target.value)}
+                  style={styles.formInput}
+                />
+              </div>
+
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Job Description</label>
+                <textarea
+                  rows={4}
+                  placeholder="Paste job description, responsibilities, or eligibility..."
+                  value={manualDesc}
+                  onChange={(e) => setManualDesc(e.target.value)}
+                  style={styles.formTextarea}
+                />
+              </div>
+
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Original Source URL</label>
+                <input
+                  type="url"
+                  placeholder="https://company.com/careers/job-123"
+                  value={manualSourceUrl}
+                  onChange={(e) => setManualSourceUrl(e.target.value)}
+                  style={styles.formInput}
+                />
+              </div>
+
+              <div style={styles.modalFooter}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  style={styles.outlineBtn}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingManual}
+                  style={styles.primaryBtn}
+                >
+                  {submittingManual ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+                  <span>Save Job</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Import from URL */}
+      {showImportModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowImportModal(false)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h2 style={styles.modalTitle}>Import Job from URL</h2>
+                <p style={styles.modalSub}>
+                  Paste any job posting or careers page link. We will extract metadata and tech skills.
+                </p>
+              </div>
+              <button onClick={() => setShowImportModal(false)} style={styles.modalCloseBtn}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleImportSubmit} style={styles.modalBody}>
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Job Posting URL *</label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://example.com/careers/software-engineer"
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  style={styles.formInput}
+                />
+                <span style={{ fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>
+                  Supports Schema.org JobPosting, career sites, and public job portals.
+                </span>
+              </div>
+
+              <div style={styles.modalFooter}>
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(false)}
+                  style={styles.outlineBtn}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={importingUrl}
+                  style={styles.primaryBtn}
+                >
+                  {importingUrl ? (
+                    <>
+                      <Loader2 size={16} className="spin" />
+                      <span>Parsing URL...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Globe size={16} />
+                      <span>Extract & Save</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const styles = {
+  container: {
+    maxWidth: '1200px',
+    margin: '32px auto',
+    padding: '0 24px',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+  },
+  pageHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: '24px',
+    flexWrap: 'wrap',
+    gap: '16px',
+  },
+  pageTitle: {
+    fontSize: '24px',
+    fontWeight: '700',
+    color: '#111827',
+    margin: '0 0 6px 0',
+  },
+  pageSub: {
+    fontSize: '14px',
+    color: '#6b7280',
+    margin: 0,
+  },
+  headerActions: {
+    display: 'flex',
+    gap: '10px',
+    alignItems: 'center',
+  },
+  primaryBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '10px 18px',
+    borderRadius: '8px',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    fontSize: '13px',
+    fontWeight: '600',
+    border: 'none',
+    cursor: 'pointer',
+    boxShadow: '0 1px 3px rgba(37, 99, 235, 0.2)',
+  },
+  outlineBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '9px 16px',
+    borderRadius: '8px',
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    fontSize: '13px',
+    fontWeight: '500',
+    border: '1px solid #d1d5db',
+    cursor: 'pointer',
+  },
+  successBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '12px 16px',
+    backgroundColor: '#ecfdf5',
+    border: '1px solid #a7f3d0',
+    borderRadius: '8px',
+    color: '#065f46',
+    fontSize: '13px',
+    marginBottom: '20px',
+  },
+  errorBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '12px 16px',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    color: '#991b1b',
+    fontSize: '13px',
+    marginBottom: '20px',
+  },
+  filterCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    border: '1px solid #e5e7eb',
+    padding: '16px',
+    marginBottom: '20px',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+  },
+  searchRow: {
+    marginBottom: '12px',
+  },
+  searchInputWrapper: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  searchIcon: {
+    position: 'absolute',
+    left: '12px',
+  },
+  searchInput: {
+    width: '100%',
+    padding: '12px 12px 12px 40px',
+    borderRadius: '8px',
+    border: '1px solid #d1d5db',
+    fontSize: '14px',
+    outline: 'none',
+    boxSizing: 'border-box',
+  },
+  filterRow: {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  filterGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    backgroundColor: '#f9fafb',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    padding: '6px 12px',
+    flex: '1 1 180px',
+  },
+  filterInput: {
+    border: 'none',
+    backgroundColor: 'transparent',
+    outline: 'none',
+    fontSize: '13px',
+    width: '100%',
+  },
+  filterSelect: {
+    border: 'none',
+    backgroundColor: 'transparent',
+    outline: 'none',
+    fontSize: '13px',
+    width: '100%',
+    cursor: 'pointer',
+  },
+  clearBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '8px 12px',
+    borderRadius: '6px',
+    border: 'none',
+    backgroundColor: '#f3f4f6',
+    color: '#4b5563',
+    fontSize: '12px',
+    fontWeight: '500',
+    cursor: 'pointer',
+  },
+  resultsInfoRow: {
+    marginBottom: '16px',
+  },
+  resultsCount: {
+    fontSize: '13px',
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  loadingContainer: {
+    minHeight: '260px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '12px',
+    color: '#6b7280',
+  },
+  emptyState: {
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    border: '1px dashed #d1d5db',
+    padding: '48px 24px',
+    textAlign: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#374151',
+    margin: '12px 0 6px 0',
+  },
+  emptySub: {
+    fontSize: '13px',
+    color: '#6b7280',
+    margin: 0,
+    maxWidth: '420px',
+  },
+  jobGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
+    gap: '20px',
+  },
+  jobCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    border: '1px solid #e5e7eb',
+    padding: '20px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+  },
+  jobCardHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: '10px',
+  },
+  jobTitle: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#111827',
+    margin: '0 0 4px 0',
+  },
+  companyRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  companyName: {
+    fontSize: '13px',
+    fontWeight: '500',
+    color: '#4b5563',
+  },
+  platformBadge: {
+    fontSize: '11px',
+    fontWeight: '500',
+    padding: '2px 8px',
+    borderRadius: '12px',
+    backgroundColor: '#f3f4f6',
+    color: '#4b5563',
+  },
+  metaRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+    alignItems: 'center',
+    margin: '10px 0',
+  },
+  metaItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '12px',
+    color: '#6b7280',
+  },
+  metaBadge: {
+    fontSize: '11px',
+    fontWeight: '600',
+    padding: '2px 8px',
+    borderRadius: '4px',
+    backgroundColor: '#eff6ff',
+    color: '#1d4ed8',
+  },
+  jobSnippet: {
+    fontSize: '13px',
+    color: '#4b5563',
+    lineHeight: 1.4,
+    margin: '8px 0',
+  },
+  skillsTagList: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '6px',
+    margin: '12px 0',
+  },
+  skillTag: {
+    fontSize: '11px',
+    fontWeight: '500',
+    padding: '4px 8px',
+    borderRadius: '6px',
+    backgroundColor: '#f1f5f9',
+    color: '#334155',
+  },
+  moreSkillsTag: {
+    fontSize: '11px',
+    fontWeight: '500',
+    padding: '4px 8px',
+    borderRadius: '6px',
+    backgroundColor: '#f8fafc',
+    color: '#64748b',
+  },
+  jobCardFooter: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTop: '1px solid #f3f4f6',
+    paddingTop: '12px',
+    marginTop: '12px',
+  },
+  detailsBtn: {
+    padding: '6px 14px',
+    borderRadius: '6px',
+    border: '1px solid #d1d5db',
+    backgroundColor: '#ffffff',
+    color: '#1f2937',
+    fontSize: '12px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  externalLinkBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    color: '#2563eb',
+    fontSize: '12px',
+    fontWeight: '500',
+    textDecoration: 'none',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 50,
+    padding: '16px',
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: '12px',
+    maxWidth: '620px',
+    width: '100%',
+    maxHeight: '90vh',
+    overflowY: 'auto',
+    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+  },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    padding: '20px',
+    borderBottom: '1px solid #f3f4f6',
+  },
+  modalTitle: {
+    fontSize: '18px',
+    fontWeight: '700',
+    color: '#111827',
+    margin: '0 0 4px 0',
+  },
+  modalSub: {
+    fontSize: '13px',
+    color: '#6b7280',
+    margin: 0,
+  },
+  modalCloseBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#6b7280',
+    cursor: 'pointer',
+  },
+  modalBody: {
+    padding: '20px',
+  },
+  modalMetaGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, 1fr)',
+    gap: '12px',
+    backgroundColor: '#f9fafb',
+    padding: '14px',
+    borderRadius: '8px',
+  },
+  modalMetaLabel: {
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    display: 'block',
+    marginBottom: '2px',
+  },
+  modalMetaVal: {
+    fontSize: '13px',
+    fontWeight: '500',
+    color: '#111827',
+  },
+  modalDescriptionText: {
+    fontSize: '13px',
+    lineHeight: 1.6,
+    color: '#374151',
+    whiteSpace: 'pre-wrap',
+    marginTop: '6px',
+    maxHeight: '200px',
+    overflowY: 'auto',
+    padding: '10px',
+    backgroundColor: '#f9fafb',
+    borderRadius: '6px',
+  },
+  applyExternalBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '10px 18px',
+    borderRadius: '8px',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    fontSize: '13px',
+    fontWeight: '600',
+    textDecoration: 'none',
+  },
+  formRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '12px',
+  },
+  formField: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    marginBottom: '12px',
+  },
+  formLabel: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#374151',
+  },
+  formInput: {
+    padding: '9px 12px',
+    borderRadius: '6px',
+    border: '1px solid #d1d5db',
+    fontSize: '13px',
+    outline: 'none',
+  },
+  formTextarea: {
+    padding: '9px 12px',
+    borderRadius: '6px',
+    border: '1px solid #d1d5db',
+    fontSize: '13px',
+    outline: 'none',
+    resize: 'vertical',
+    fontFamily: 'inherit',
+  },
+  modalFooter: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '10px',
+    marginTop: '16px',
+  },
+};

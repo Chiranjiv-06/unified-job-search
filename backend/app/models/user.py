@@ -8,6 +8,8 @@ if TYPE_CHECKING:
     from app.models.profile import CandidateProfile
     from app.models.application import Application
     from app.models.email_event import EmailEvent
+    from app.models.job import Job
+
 
 class User(Base):
     __tablename__ = "users"
@@ -41,6 +43,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan"
     )
+    created_jobs: Mapped[List["Job"]] = relationship(
+        "Job",
+        back_populates="creator"
+    )
+
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email}>"
