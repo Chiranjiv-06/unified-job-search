@@ -36,3 +36,17 @@ class CandidateProfileResponse(CandidateProfileBase):
     skills: List[SkillResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+class ResumeUploadResponse(BaseModel):
+    message: str
+    filename: str
+    pages_parsed: int
+    extracted_text_preview: str
+    extracted_skills: List[str]
+    draft_suggestions: List[SkillCreate]
+    current_skills: List[SkillResponse]
+    warning: Optional[str] = None
+
+class ConfirmSkillsRequest(BaseModel):
+    skills: List[SkillCreate]
+

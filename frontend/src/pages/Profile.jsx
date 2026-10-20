@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import useAuth from '../hooks/useAuth';
-import { getProfileApi, updateProfileApi } from '../services/api';
+import { getProfileApi, updateProfileApi, uploadResumeApi, confirmSkillsApi } from '../services/api';
 import {
   User,
   GraduationCap,
@@ -13,7 +13,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Layers
+  Layers,
+  FileText,
+  Upload,
+  Check
 } from 'lucide-react';
 
 export default function Profile() {
@@ -36,6 +39,15 @@ export default function Profile() {
   const [skills, setSkills] = useState([]);
   const [newSkillName, setNewSkillName] = useState('');
   const [newSkillProficiency, setNewSkillProficiency] = useState('Intermediate');
+
+  // Resume upload & draft suggestions state
+  const [resumeFile, setResumeFile] = useState(null);
+  const [resumeUploading, setResumeUploading] = useState(false);
+  const [resumeNotice, setResumeNotice] = useState(null);
+  const [draftSkills, setDraftSkills] = useState([]);
+  const [selectedDraftSkills, setSelectedDraftSkills] = useState(new Set());
+  const [extractedPreview, setExtractedPreview] = useState('');
+
 
   useEffect(() => {
     let ignore = false;
@@ -70,7 +82,86 @@ export default function Profile() {
     };
   }, []);
 
+  const handleResumeFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setErrorMsg('Only PDF documents (.pdf) are allowed.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorMsg('Resume file size exceeds the 5MB maximum limit.');
+      return;
+    }
+    setErrorMsg(null);
+    setResumeNotice(null);
+    setResumeFile(file);
+  };
+
+  const handleUploadResume = async () => {
+    if (!resumeFile) return;
+    setResumeUploading(true);
+    setResumeNotice(null);
+
+    try {
+      const data = await uploadResumeApi(resumeFile);
+      setExtractedPreview(data.extracted_text_preview || '');
+      setResumeNotice({
+        type: data.warning ? 'warning' : 'success',
+        text: data.warning || data.message || 'Resume uploaded and processed successfully!',
+      });
+
+      if (data.draft_suggestions && data.draft_suggestions.length > 0) {
+        setDraftSkills(data.draft_suggestions);
+        const existingSet = new Set(skills.map((s) => s.skill_name.toLowerCase()));
+        const initialSelected = new Set();
+        data.draft_suggestions.forEach((item) => {
+          if (!existingSet.has(item.skill_name.toLowerCase())) {
+            initialSelected.add(item.skill_name);
+          }
+        });
+        setSelectedDraftSkills(initialSelected);
+      }
+    } catch (err) {
+      setResumeNotice({
+        type: 'error',
+        text: err.customMessage || 'Failed to upload and parse resume.',
+      });
+    } finally {
+      setResumeUploading(false);
+    }
+  };
+
+  const handleToggleDraftSkill = (skillName) => {
+    setSelectedDraftSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(skillName)) {
+        next.delete(skillName);
+      } else {
+        next.add(skillName);
+      }
+      return next;
+    });
+  };
+
+  const handleConfirmSelectedDraftSkills = async () => {
+    const toConfirm = draftSkills.filter((d) => selectedDraftSkills.has(d.skill_name));
+    if (toConfirm.length === 0) return;
+
+    try {
+      const updated = await confirmSkillsApi(toConfirm);
+      setSkills(updated.skills || []);
+      setDraftSkills((prev) => prev.filter((d) => !selectedDraftSkills.has(d.skill_name)));
+      setSelectedDraftSkills(new Set());
+      setSuccessMsg(`Added ${toConfirm.length} skills from your resume to your profile!`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to confirm selected skills.');
+    }
+  };
+
   const handleAddSkill = (e) => {
+
     e.preventDefault();
     const trimmed = newSkillName.trim();
     if (!trimmed) return;
@@ -287,7 +378,115 @@ export default function Profile() {
           </div>
         </div>
 
+        {/* Resume & Skill Auto-Extraction Card */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            <FileText size={18} color="#2563eb" />
+            <h3 style={styles.cardTitle}>Resume & Skill Auto-Extraction (PDF)</h3>
+          </div>
+          <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0' }}>
+            Upload your PDF resume (max 5MB). Our parser extracts plain text and provides draft skill suggestions for your manual review before updating profile data.
+          </p>
+
+          <div style={styles.resumeUploadRow}>
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              id="resume-file-input"
+              onChange={handleResumeFileSelect}
+              style={{ display: 'none' }}
+            />
+            <label htmlFor="resume-file-input" style={styles.chooseFileBtn}>
+              <Upload size={16} />
+              <span>{resumeFile ? resumeFile.name : 'Choose PDF Resume'}</span>
+            </label>
+            <button
+              type="button"
+              onClick={handleUploadResume}
+              disabled={!resumeFile || resumeUploading}
+              style={(!resumeFile || resumeUploading) ? styles.uploadBtnDisabled : styles.uploadBtn}
+            >
+              {resumeUploading ? (
+                <>
+                  <Loader2 size={15} className="spin" />
+                  <span>Extracting Skills...</span>
+                </>
+              ) : (
+                <>
+                  <FileText size={15} />
+                  <span>Upload & Extract</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {resumeNotice && (
+            <div
+              style={
+                resumeNotice.type === 'error'
+                  ? styles.errorBanner
+                  : resumeNotice.type === 'warning'
+                  ? styles.warningBanner
+                  : styles.successBanner
+              }
+            >
+              {resumeNotice.type === 'error' ? (
+                <AlertCircle size={16} color="#b91c1c" />
+              ) : (
+                <CheckCircle2 size={16} color="#059669" />
+              )}
+              <span>{resumeNotice.text}</span>
+            </div>
+          )}
+
+          {draftSkills.length > 0 && (
+            <div style={styles.draftSection}>
+              <div style={styles.draftHeader}>
+                <span style={styles.draftTitle}>
+                  Draft Skill Suggestions ({draftSkills.length} found)
+                </span>
+                <span style={styles.draftSub}>
+                  Select skills to include in your profile:
+                </span>
+              </div>
+              <div style={styles.draftChipsContainer}>
+                {draftSkills.map((draft, idx) => {
+                  const isSelected = selectedDraftSkills.has(draft.skill_name);
+                  return (
+                    <button
+                      type="button"
+                      key={idx}
+                      onClick={() => handleToggleDraftSkill(draft.skill_name)}
+                      style={isSelected ? styles.draftChipSelected : styles.draftChip}
+                    >
+                      {isSelected && <Check size={13} style={{ marginRight: '4px' }} />}
+                      <span>{draft.skill_name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleConfirmSelectedDraftSkills}
+                  disabled={selectedDraftSkills.size === 0}
+                  style={selectedDraftSkills.size === 0 ? styles.confirmBtnDisabled : styles.confirmBtn}
+                >
+                  <Check size={14} />
+                  <span>Confirm Selected ({selectedDraftSkills.size})</span>
+                </button>
+                {extractedPreview && (
+                  <span style={{ fontSize: '12px', color: '#6b7280' }}>
+                    Preview: &quot;{extractedPreview.slice(0, 70)}...&quot;
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Skills Card */}
+
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <Layers size={18} color="#2563eb" />
@@ -574,4 +773,142 @@ const styles = {
     cursor: 'pointer',
     boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)',
   },
+  resumeUploadRow: {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'center',
+    marginBottom: '14px',
+    flexWrap: 'wrap',
+  },
+  chooseFileBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '9px 14px',
+    borderRadius: '8px',
+    backgroundColor: '#f3f4f6',
+    border: '1px solid #d1d5db',
+    fontSize: '13px',
+    fontWeight: '500',
+    color: '#374151',
+    cursor: 'pointer',
+  },
+  uploadBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '9px 16px',
+    borderRadius: '8px',
+    backgroundColor: '#1d4ed8',
+    color: '#ffffff',
+    fontSize: '13px',
+    fontWeight: '600',
+    border: 'none',
+    cursor: 'pointer',
+  },
+  uploadBtnDisabled: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '9px 16px',
+    borderRadius: '8px',
+    backgroundColor: '#93c5fd',
+    color: '#ffffff',
+    fontSize: '13px',
+    fontWeight: '600',
+    border: 'none',
+    cursor: 'not-allowed',
+  },
+  warningBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '12px 16px',
+    backgroundColor: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: '8px',
+    color: '#92400e',
+    fontSize: '13px',
+    marginBottom: '16px',
+  },
+  draftSection: {
+    backgroundColor: '#f8fafc',
+    borderRadius: '8px',
+    border: '1px dashed #cbd5e1',
+    padding: '16px',
+    marginTop: '12px',
+  },
+  draftHeader: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    marginBottom: '12px',
+  },
+  draftTitle: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  draftSub: {
+    fontSize: '12px',
+    color: '#64748b',
+  },
+  draftChipsContainer: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+  },
+  draftChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '6px 12px',
+    borderRadius: '20px',
+    backgroundColor: '#ffffff',
+    border: '1px solid #cbd5e1',
+    color: '#475569',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
+  draftChipSelected: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '6px 12px',
+    borderRadius: '20px',
+    backgroundColor: '#dbeafe',
+    border: '1px solid #2563eb',
+    color: '#1d4ed8',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    boxShadow: '0 1px 2px rgba(37, 99, 235, 0.15)',
+  },
+  confirmBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 14px',
+    borderRadius: '6px',
+    backgroundColor: '#059669',
+    color: '#ffffff',
+    fontSize: '12px',
+    fontWeight: '600',
+    border: 'none',
+    cursor: 'pointer',
+  },
+  confirmBtnDisabled: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 14px',
+    borderRadius: '6px',
+    backgroundColor: '#a7f3d0',
+    color: '#ffffff',
+    fontSize: '12px',
+    fontWeight: '600',
+    border: 'none',
+    cursor: 'not-allowed',
+  },
 };
+

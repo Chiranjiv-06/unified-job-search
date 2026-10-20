@@ -95,4 +95,21 @@ export const updateProfileApi = async (profileData) => {
   return response.data;
 };
 
+export const uploadResumeApi = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await api.post('/api/profile/resume', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
+export const confirmSkillsApi = async (skills) => {
+  const response = await api.post('/api/profile/confirm-skills', { skills });
+  return response.data;
+};
+
 export default api;
+
