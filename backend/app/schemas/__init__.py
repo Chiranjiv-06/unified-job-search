@@ -33,6 +33,11 @@ from app.schemas.job import (
     JobResponse,
     JobListResponse
 )
+from app.schemas.matching import (
+    MatchBreakdownResponse,
+    JobMatchRankingItem,
+    JobMatchRankingsResponse
+)
 
 __all__ = [
     "UserRegister",
@@ -63,5 +68,9 @@ __all__ = [
     "JobImportRequest",
     "JobResponse",
     "JobListResponse",
+    "MatchBreakdownResponse",
+    "JobMatchRankingItem",
+    "JobMatchRankingsResponse",
 ]
+
 

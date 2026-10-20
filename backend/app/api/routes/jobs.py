@@ -1,14 +1,19 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.db.session import get_db
 from app.models.user import User
+from app.models.profile import CandidateProfile
 from app.api.deps import get_current_user
 from app.schemas.job import JobCreate, JobUpdate, JobImportRequest, JobResponse, JobListResponse
-from app.services import job_service
+from app.schemas.matching import MatchBreakdownResponse, JobMatchRankingsResponse
+from app.services import job_service, matching_service
 
 router = APIRouter(prefix="/jobs", tags=["Job Discovery & Records"])
+
+
 
 
 @router.get("", response_model=JobListResponse)
@@ -68,11 +73,43 @@ def import_job_from_url(
     return job_service.import_job_from_url(db=db, url=import_in.url, user_id=current_user.id)
 
 
+@router.get("/matches", response_model=JobMatchRankingsResponse)
+def get_ranked_job_matches(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Ranks all active jobs by match score against the authenticated candidate profile.
+    """
+    profile = db.execute(
+        select(CandidateProfile).where(CandidateProfile.user_id == current_user.id)
+    ).scalar_one_or_none()
+    return matching_service.rank_active_jobs_for_candidate(db=db, profile=profile)
+
+
+@router.post("/{job_id}/match", response_model=MatchBreakdownResponse)
+def match_job_with_candidate(
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Computes and returns a transparent delta match breakdown between candidate profile and specified job.
+    """
+    job = job_service.get_job_by_id(db=db, job_id=job_id)
+    profile = db.execute(
+        select(CandidateProfile).where(CandidateProfile.user_id == current_user.id)
+    ).scalar_one_or_none()
+    return matching_service.compute_job_match(profile=profile, job=job)
+
+
+
 @router.get("/{job_id}", response_model=JobResponse)
 def get_job(
     job_id: int,
     db: Session = Depends(get_db)
 ):
+
     """
     Retrieves full details for a specific job posting.
     """

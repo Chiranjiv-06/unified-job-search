@@ -142,6 +142,18 @@ export const deleteJobApi = async (jobId) => {
   return response.data;
 };
 
+// Explainable Job Matching endpoints
+export const matchJobApi = async (jobId) => {
+  const response = await api.post(`/api/jobs/${jobId}/match`);
+  return response.data;
+};
+
+export const getRankedJobMatchesApi = async () => {
+  const response = await api.get('/api/jobs/matches');
+  return response.data;
+};
+
 export default api;
+
 
 

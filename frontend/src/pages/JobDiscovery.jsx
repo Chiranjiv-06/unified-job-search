@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   getJobsApi,
   createJobApi,
-  importJobUrlApi
+  importJobUrlApi,
+  matchJobApi,
+  getRankedJobMatchesApi
 } from '../services/api';
 import {
   Briefcase,
@@ -17,9 +19,13 @@ import {
   Loader2,
   IndianRupee,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Sparkles,
+  Target,
+  Lightbulb,
+  AlertTriangle,
+  Check
 } from 'lucide-react';
-
 
 export default function JobDiscovery() {
   const [jobs, setJobs] = useState([]);
@@ -27,6 +33,16 @@ export default function JobDiscovery() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
+
+  // Tab state: 'all' vs 'ranked'
+  const [activeTab, setActiveTab] = useState('all');
+  const [rankedJobs, setRankedJobs] = useState([]);
+  const [loadingRanked, setLoadingRanked] = useState(false);
+
+  // Matching Modal state
+  const [matchModalJob, setMatchModalJob] = useState(null);
+  const [matchBreakdown, setMatchBreakdown] = useState(null);
+  const [loadingMatch, setLoadingMatch] = useState(false);
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -56,6 +72,7 @@ export default function JobDiscovery() {
   const [importUrl, setImportUrl] = useState('');
   const [importingUrl, setImportingUrl] = useState(false);
 
+
   const fetchJobs = useCallback(async () => {
     setLoading(true);
     setErrorMsg(null);
@@ -83,7 +100,43 @@ export default function JobDiscovery() {
     return () => clearTimeout(timer);
   }, [fetchJobs]);
 
+  const handleCheckMatch = async (job) => {
+    setMatchModalJob(job);
+    setLoadingMatch(true);
+    setMatchBreakdown(null);
+    setErrorMsg(null);
+    try {
+      const data = await matchJobApi(job.id);
+      setMatchBreakdown(data);
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to compute match breakdown.');
+    } finally {
+      setLoadingMatch(false);
+    }
+  };
+
+  const fetchRankedMatches = async () => {
+    setLoadingRanked(true);
+    setErrorMsg(null);
+    try {
+      const data = await getRankedJobMatchesApi();
+      setRankedJobs(data.rankings || []);
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to load ranked job matches.');
+    } finally {
+      setLoadingRanked(false);
+    }
+  };
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    if (tab === 'ranked') {
+      fetchRankedMatches();
+    }
+  };
+
   const handleManualSubmit = async (e) => {
+
     e.preventDefault();
     if (!manualTitle.trim() || !manualCompany.trim()) {
       setErrorMsg('Job title and company name are required.');
@@ -205,8 +258,30 @@ export default function JobDiscovery() {
         </div>
       )}
 
+      {/* Tab Switcher: All Jobs vs Ranked Matches */}
+      <div style={styles.tabContainer}>
+        <button
+          type="button"
+          onClick={() => handleTabChange('all')}
+          style={activeTab === 'all' ? styles.tabActive : styles.tabInactive}
+        >
+          <Briefcase size={15} />
+          <span>All Discovered Jobs ({totalJobs})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => handleTabChange('ranked')}
+          style={activeTab === 'ranked' ? styles.tabActive : styles.tabInactive}
+        >
+          <Sparkles size={15} color={activeTab === 'ranked' ? '#2563eb' : '#7c3aed'} />
+          <span>Ranked by Fit (Explainable Match)</span>
+        </button>
+      </div>
+
       {/* Search and Filters Bar */}
-      <div style={styles.filterCard}>
+      {activeTab === 'all' && (
+        <div style={styles.filterCard}>
+
         <div style={styles.searchRow}>
           <div style={styles.searchInputWrapper}>
             <Search size={18} color="#9ca3af" style={styles.searchIcon} />
@@ -265,125 +340,239 @@ export default function JobDiscovery() {
           )}
         </div>
       </div>
+      )}
 
       {/* Results Header */}
       <div style={styles.resultsInfoRow}>
         <span style={styles.resultsCount}>
-          Showing {jobs.length} of {totalJobs} {totalJobs === 1 ? 'Opportunity' : 'Opportunities'}
+          {activeTab === 'all'
+            ? `Showing ${jobs.length} of ${totalJobs} ${totalJobs === 1 ? 'Opportunity' : 'Opportunities'}`
+            : `Showing ${rankedJobs.length} Opportunities Ranked by Match Score`}
         </span>
       </div>
 
-      {/* Job Cards List */}
-      {loading ? (
-        <div style={styles.loadingContainer}>
-          <Loader2 size={32} className="spin" color="#2563eb" />
-          <p>Loading job postings...</p>
-        </div>
-      ) : jobs.length === 0 ? (
-        <div style={styles.emptyState}>
-          <Briefcase size={44} color="#9ca3af" />
-          <h3 style={styles.emptyTitle}>No matching job opportunities found</h3>
-          <p style={styles.emptySub}>
-            Try adjusting your search criteria, or add a new job manually or by URL.
-          </p>
-          <div style={{ marginTop: '16px', display: 'flex', gap: '10px' }}>
-            <button onClick={() => setShowAddModal(true)} style={styles.primaryBtn}>
-              <Plus size={16} />
-              <span>Add Job</span>
-            </button>
-            <button onClick={() => setShowImportModal(true)} style={styles.outlineBtn}>
-              <Globe size={16} />
-              <span>Import URL</span>
-            </button>
+      {/* Tab Content: All Jobs vs Ranked Jobs */}
+      {activeTab === 'all' ? (
+        loading ? (
+          <div style={styles.loadingContainer}>
+            <Loader2 size={32} className="spin" color="#2563eb" />
+            <p>Loading job postings...</p>
           </div>
-        </div>
-      ) : (
-        <div style={styles.jobGrid}>
-          {jobs.map((job) => (
-            <div key={job.id} style={styles.jobCard}>
-              <div style={styles.jobCardHeader}>
-                <div>
-                  <h3 style={styles.jobTitle}>{job.title}</h3>
-                  <div style={styles.companyRow}>
-                    <Building2 size={15} color="#4b5563" />
-                    <span style={styles.companyName}>{job.company_name}</span>
-                    <span style={styles.platformBadge}>{job.source_platform || 'Portal'}</span>
+        ) : jobs.length === 0 ? (
+          <div style={styles.emptyState}>
+            <Briefcase size={44} color="#9ca3af" />
+            <h3 style={styles.emptyTitle}>No matching job opportunities found</h3>
+            <p style={styles.emptySub}>
+              Try adjusting your search criteria, or add a new job manually or by URL.
+            </p>
+            <div style={{ marginTop: '16px', display: 'flex', gap: '10px' }}>
+              <button onClick={() => setShowAddModal(true)} style={styles.primaryBtn}>
+                <Plus size={16} />
+                <span>Add Job</span>
+              </button>
+              <button onClick={() => setShowImportModal(true)} style={styles.outlineBtn}>
+                <Globe size={16} />
+                <span>Import URL</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={styles.jobGrid}>
+            {jobs.map((job) => (
+              <div key={job.id} style={styles.jobCard}>
+                <div style={styles.jobCardHeader}>
+                  <div>
+                    <h3 style={styles.jobTitle}>{job.title}</h3>
+                    <div style={styles.companyRow}>
+                      <Building2 size={15} color="#4b5563" />
+                      <span style={styles.companyName}>{job.company_name}</span>
+                      <span style={styles.platformBadge}>{job.source_platform || 'Portal'}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div style={styles.metaRow}>
-                {job.location && (
-                  <div style={styles.metaItem}>
-                    <MapPin size={13} color="#6b7280" />
-                    <span>{job.location}</span>
-                  </div>
-                )}
-                {job.work_mode && (
-                  <div style={styles.metaBadge}>
-                    <span>{job.work_mode}</span>
-                  </div>
-                )}
-                {job.salary_range && (
-                  <div style={styles.metaItem}>
-                    <IndianRupee size={13} color="#059669" />
-                    <span style={{ color: '#059669', fontWeight: '500' }}>{job.salary_range}</span>
-                  </div>
-                )}
-                {job.experience_level && (
-                  <div style={styles.metaItem}>
-                    <Briefcase size={13} color="#6b7280" />
-                    <span>{job.experience_level}</span>
-                  </div>
-                )}
-              </div>
-
-              {job.description && (
-                <p style={styles.jobSnippet}>
-                  {job.description.slice(0, 140)}...
-                </p>
-              )}
-
-              {/* Skills Tags */}
-              {job.required_skills && job.required_skills.length > 0 && (
-                <div style={styles.skillsTagList}>
-                  {job.required_skills.slice(0, 5).map((skill, sIdx) => (
-                    <span key={sIdx} style={styles.skillTag}>
-                      {skill}
-                    </span>
-                  ))}
-                  {job.required_skills.length > 5 && (
-                    <span style={styles.moreSkillsTag}>
-                      +{job.required_skills.length - 5} more
-                    </span>
+                <div style={styles.metaRow}>
+                  {job.location && (
+                    <div style={styles.metaItem}>
+                      <MapPin size={13} color="#6b7280" />
+                      <span>{job.location}</span>
+                    </div>
+                  )}
+                  {job.work_mode && (
+                    <div style={styles.metaBadge}>
+                      <span>{job.work_mode}</span>
+                    </div>
+                  )}
+                  {job.salary_range && (
+                    <div style={styles.metaItem}>
+                      <IndianRupee size={13} color="#059669" />
+                      <span style={{ color: '#059669', fontWeight: '500' }}>{job.salary_range}</span>
+                    </div>
+                  )}
+                  {job.experience_level && (
+                    <div style={styles.metaItem}>
+                      <Briefcase size={13} color="#6b7280" />
+                      <span>{job.experience_level}</span>
+                    </div>
                   )}
                 </div>
-              )}
 
-              <div style={styles.jobCardFooter}>
-                <button
-                  onClick={() => setSelectedJob(job)}
-                  style={styles.detailsBtn}
-                >
-                  View Details
-                </button>
-                {job.source_url && (
-                  <a
-                    href={job.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.externalLinkBtn}
-                    title="Open original job link"
-                  >
-                    <span>Source</span>
-                    <ExternalLink size={13} />
-                  </a>
+                {job.description && (
+                  <p style={styles.jobSnippet}>
+                    {job.description.slice(0, 140)}...
+                  </p>
                 )}
+
+                {/* Skills Tags */}
+                {job.required_skills && job.required_skills.length > 0 && (
+                  <div style={styles.skillsTagList}>
+                    {job.required_skills.slice(0, 5).map((skill, sIdx) => (
+                      <span key={sIdx} style={styles.skillTag}>
+                        {skill}
+                      </span>
+                    ))}
+                    {job.required_skills.length > 5 && (
+                      <span style={styles.moreSkillsTag}>
+                        +{job.required_skills.length - 5} more
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div style={styles.jobCardFooter}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => setSelectedJob(job)}
+                      style={styles.detailsBtn}
+                    >
+                      View Details
+                    </button>
+                    <button
+                      onClick={() => handleCheckMatch(job)}
+                      style={styles.matchBtn}
+                    >
+                      <Sparkles size={13} color="#2563eb" />
+                      <span>Check Match</span>
+                    </button>
+                  </div>
+                  {job.source_url && (
+                    <a
+                      href={job.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={styles.externalLinkBtn}
+                      title="Open original job link"
+                    >
+                      <span>Source</span>
+                      <ExternalLink size={13} />
+                    </a>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
+      ) : (
+        /* Ranked Jobs Tab Content */
+        loadingRanked ? (
+          <div style={styles.loadingContainer}>
+            <Loader2 size={32} className="spin" color="#2563eb" />
+            <p>Evaluating active jobs against your verified candidate profile...</p>
+          </div>
+        ) : rankedJobs.length === 0 ? (
+          <div style={styles.emptyState}>
+            <Target size={44} color="#9ca3af" />
+            <h3 style={styles.emptyTitle}>No ranked opportunities yet</h3>
+            <p style={styles.emptySub}>
+              Ensure your profile has technical skills and experience years added, then re-run matching.
+            </p>
+          </div>
+        ) : (
+          <div style={styles.jobGrid}>
+            {rankedJobs.map((item) => (
+              <div key={item.job.id} style={styles.jobCard}>
+                <div style={styles.jobCardHeader}>
+                  <div>
+                    <h3 style={styles.jobTitle}>{item.job.title}</h3>
+                    <div style={styles.companyRow}>
+                      <Building2 size={15} color="#4b5563" />
+                      <span style={styles.companyName}>{item.job.company_name}</span>
+                    </div>
+                  </div>
+                  <div style={{
+                    ...styles.matchPill,
+                    backgroundColor: item.match_score >= 75 ? '#ecfdf5' : item.match_score >= 50 ? '#fffbeb' : '#fef2f2',
+                    borderColor: item.match_score >= 75 ? '#a7f3d0' : item.match_score >= 50 ? '#fde68a' : '#fecaca',
+                    color: item.match_score >= 75 ? '#047857' : item.match_score >= 50 ? '#b45309' : '#b91c1c'
+                  }}>
+                    <Target size={13} />
+                    <span>{item.match_score}% Match</span>
+                  </div>
+                </div>
+
+                <div style={styles.metaRow}>
+                  {item.job.location && (
+                    <div style={styles.metaItem}>
+                      <MapPin size={13} color="#6b7280" />
+                      <span>{item.job.location}</span>
+                    </div>
+                  )}
+                  {item.job.work_mode && (
+                    <div style={styles.metaBadge}>
+                      <span>{item.job.work_mode}</span>
+                    </div>
+                  )}
+                  <div style={styles.metaItem}>
+                    <CheckCircle2 size={13} color="#059669" />
+                    <span>{item.matched_skills_count} Matched Skills</span>
+                  </div>
+                  {item.missing_critical_skills_count > 0 && (
+                    <div style={styles.metaItem}>
+                      <AlertCircle size={13} color="#b91c1c" />
+                      <span>{item.missing_critical_skills_count} Missing</span>
+                    </div>
+                  )}
+                </div>
+
+                <p style={styles.quickSummaryText}>
+                  {item.quick_summary}
+                </p>
+
+                <div style={styles.jobCardFooter}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => setSelectedJob(item.job)}
+                      style={styles.detailsBtn}
+                    >
+                      View Details
+                    </button>
+                    <button
+                      onClick={() => handleCheckMatch(item.job)}
+                      style={styles.matchBtnPrimary}
+                    >
+                      <Sparkles size={13} color="#ffffff" />
+                      <span>Detailed Breakdown</span>
+                    </button>
+                  </div>
+                  {item.job.source_url && (
+                    <a
+                      href={item.job.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={styles.externalLinkBtn}
+                      title="Open original job link"
+                    >
+                      <span>Source</span>
+                      <ExternalLink size={13} />
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       )}
+
 
       {/* Modal: Job Details */}
       {selectedJob && (
@@ -677,6 +866,244 @@ export default function JobDiscovery() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal / Drawer: Explainable Match Breakdown */}
+      {matchModalJob && (
+        <div style={styles.modalOverlay} onClick={() => setMatchModalJob(null)}>
+          <div
+            style={{ ...styles.modalContent, maxWidth: '680px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={styles.modalHeader}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <Sparkles size={18} color="#2563eb" />
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Explainable Fit Breakdown
+                  </span>
+                </div>
+                <h2 style={styles.modalTitle}>{matchModalJob.title}</h2>
+                <p style={styles.modalSub}>{matchModalJob.company_name}</p>
+              </div>
+              <button onClick={() => setMatchModalJob(null)} style={styles.modalCloseBtn}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              {loadingMatch ? (
+                <div style={styles.loadingContainer}>
+                  <Loader2 size={32} className="spin" color="#2563eb" />
+                  <p style={{ marginTop: '12px', color: '#4b5563', fontSize: '14px' }}>
+                    Analyzing job criteria against your verified profile...
+                  </p>
+                </div>
+              ) : matchBreakdown ? (
+                <div>
+                  {/* Score Meter & Weighted Breakdown */}
+                  <div style={styles.meterCard}>
+                    <div style={styles.meterHeader}>
+                      <div>
+                        <span style={styles.meterLabel}>Overall Match Score</span>
+                        <div style={styles.scoreRow}>
+                          <span
+                            style={{
+                              ...styles.meterScore,
+                              color:
+                                matchBreakdown.match_score >= 75
+                                  ? '#059669'
+                                  : matchBreakdown.match_score >= 50
+                                  ? '#d97706'
+                                  : '#dc2626'
+                            }}
+                          >
+                            {matchBreakdown.match_score}%
+                          </span>
+                          <span style={styles.scoreTierBadge}>
+                            {matchBreakdown.match_score >= 75
+                              ? 'Strong Alignment'
+                              : matchBreakdown.match_score >= 50
+                              ? 'Moderate Alignment'
+                              : 'Low Alignment'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={styles.weightPills}>
+                        <div style={styles.weightPillItem}>
+                          <span style={styles.weightVal}>{matchBreakdown.core_skills_score}%</span>
+                          <span style={styles.weightKey}>Core (65%)</span>
+                        </div>
+                        <div style={styles.weightPillItem}>
+                          <span style={styles.weightVal}>{matchBreakdown.preferred_skills_score}%</span>
+                          <span style={styles.weightKey}>Preferred (20%)</span>
+                        </div>
+                        <div style={styles.weightPillItem}>
+                          <span style={styles.weightVal}>{matchBreakdown.experience_score}%</span>
+                          <span style={styles.weightKey}>Exp (15%)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Visual Progress Bar */}
+                    <div style={styles.progressBarBg}>
+                      <div
+                        style={{
+                          ...styles.progressBarFill,
+                          width: `${Math.min(100, Math.max(0, matchBreakdown.match_score))}%`,
+                          backgroundColor:
+                            matchBreakdown.match_score >= 75
+                              ? '#10b981'
+                              : matchBreakdown.match_score >= 50
+                              ? '#f59e0b'
+                              : '#ef4444'
+                        }}
+                      />
+                    </div>
+
+                    {/* Human readable explanation */}
+                    <div style={styles.explanationText}>
+                      <Lightbulb size={16} color="#4b5563" style={{ flexShrink: 0, marginTop: '2px' }} />
+                      <span>{matchBreakdown.explanation}</span>
+                    </div>
+                  </div>
+
+                  {/* Experience Gap Warning / Eligibility Status */}
+                  {matchBreakdown.experience_status === 'GAP_WARNING' && (
+                    <div style={styles.expWarningAlert}>
+                      <AlertTriangle size={18} color="#b45309" style={{ flexShrink: 0 }} />
+                      <div>
+                        <strong style={{ display: 'block', fontSize: '13px', color: '#92400e' }}>
+                          Experience Gap Warning
+                        </strong>
+                        <span style={{ fontSize: '12px', color: '#b45309' }}>
+                          Role requires {matchBreakdown.required_experience_years} years. Your verified experience is {matchBreakdown.candidate_experience_years} {matchBreakdown.candidate_experience_years === 1 ? 'year' : 'years'} (gap of {matchBreakdown.experience_gap_years} {matchBreakdown.experience_gap_years === 1 ? 'year' : 'years'}).
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {matchBreakdown.experience_status === 'ELIGIBLE' && (
+                    <div style={styles.expSuccessAlert}>
+                      <CheckCircle2 size={18} color="#059669" style={{ flexShrink: 0 }} />
+                      <div>
+                        <strong style={{ display: 'block', fontSize: '13px', color: '#065f46' }}>
+                          Experience Requirement Met
+                        </strong>
+                        <span style={{ fontSize: '12px', color: '#047857' }}>
+                          Your verified experience ({matchBreakdown.candidate_experience_years} yrs) satisfies or exceeds the required {matchBreakdown.required_experience_years} yrs.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Skills Delta Breakdown */}
+                  <div style={styles.sectionCard}>
+                    <h4 style={styles.sectionCardTitle}>
+                      <Target size={15} color="#2563eb" />
+                      <span>Skills Delta Breakdown</span>
+                    </h4>
+
+                    {/* Matched Skills */}
+                    <div style={{ marginBottom: '14px' }}>
+                      <div style={styles.skillGroupHeader}>
+                        <span style={styles.skillGroupLabelSuccess}>
+                          Matched Skills ({matchBreakdown.matched_skills.length})
+                        </span>
+                      </div>
+                      {matchBreakdown.matched_skills.length === 0 ? (
+                        <span style={styles.emptySkillsNotice}>No overlapping skills found.</span>
+                      ) : (
+                        <div style={styles.chipsContainer}>
+                          {matchBreakdown.matched_skills.map((skill, idx) => (
+                            <span key={idx} style={styles.matchedChip}>
+                              <Check size={12} strokeWidth={3} />
+                              <span>{skill}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Missing Critical Skills */}
+                    <div style={{ marginBottom: '14px' }}>
+                      <div style={styles.skillGroupHeader}>
+                        <span style={styles.skillGroupLabelCritical}>
+                          Missing Critical Skills ({matchBreakdown.missing_critical_skills.length})
+                        </span>
+                      </div>
+                      {matchBreakdown.missing_critical_skills.length === 0 ? (
+                        <span style={styles.allSkillsMetNotice}>All required skills present in your profile!</span>
+                      ) : (
+                        <div style={styles.chipsContainer}>
+                          {matchBreakdown.missing_critical_skills.map((skill, idx) => (
+                            <span key={idx} style={styles.missingCriticalChip}>
+                              <AlertCircle size={12} />
+                              <span>{skill}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Missing Secondary Skills */}
+                    {matchBreakdown.missing_secondary_skills.length > 0 && (
+                      <div>
+                        <div style={styles.skillGroupHeader}>
+                          <span style={styles.skillGroupLabelSecondary}>
+                            Missing Secondary / Preferred ({matchBreakdown.missing_secondary_skills.length})
+                          </span>
+                        </div>
+                        <div style={styles.chipsContainer}>
+                          {matchBreakdown.missing_secondary_skills.map((skill, idx) => (
+                            <span key={idx} style={styles.missingSecondaryChip}>
+                              <span>{skill}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Truthful Resume Advice */}
+                  {matchBreakdown.resume_advice && matchBreakdown.resume_advice.length > 0 && (
+                    <div style={styles.adviceCard}>
+                      <div style={styles.adviceCardHeader}>
+                        <Sparkles size={16} color="#7c3aed" />
+                        <h4 style={styles.adviceCardTitle}>Truthful Resume Alignment Tips</h4>
+                      </div>
+                      <p style={styles.adviceDisclaimer}>
+                        Suggestions based strictly on verified profile overlaps (never fabricated):
+                      </p>
+                      <ul style={styles.adviceList}>
+                        {matchBreakdown.resume_advice.map((tip, idx) => (
+                          <li key={idx} style={styles.adviceListItem}>
+                            {tip}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={styles.emptyState}>
+                  <p>No breakdown data available.</p>
+                </div>
+              )}
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                onClick={() => setMatchModalJob(null)}
+                style={styles.primaryBtn}
+              >
+                Close Breakdown
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1133,4 +1560,311 @@ const styles = {
     gap: '10px',
     marginTop: '16px',
   },
+  tabContainer: {
+    display: 'flex',
+    gap: '8px',
+    marginBottom: '20px',
+    borderBottom: '1px solid #e5e7eb',
+    paddingBottom: '8px',
+  },
+  tabActive: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    borderRadius: '8px',
+    backgroundColor: '#eff6ff',
+    color: '#2563eb',
+    border: '1px solid #bfdbfe',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  tabInactive: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    borderRadius: '8px',
+    backgroundColor: 'transparent',
+    color: '#6b7280',
+    border: '1px solid transparent',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+  },
+  matchBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 12px',
+    borderRadius: '6px',
+    border: '1px solid #bfdbfe',
+    backgroundColor: '#f0f7ff',
+    color: '#2563eb',
+    fontSize: '12px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  matchBtnPrimary: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 12px',
+    borderRadius: '6px',
+    border: 'none',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    fontSize: '12px',
+    fontWeight: '600',
+    cursor: 'pointer',
+  },
+  matchPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 10px',
+    borderRadius: '20px',
+    border: '1px solid #e5e7eb',
+    fontSize: '12px',
+    fontWeight: '700',
+  },
+  quickSummaryText: {
+    fontSize: '12px',
+    color: '#4b5563',
+    lineHeight: 1.5,
+    margin: '10px 0',
+    padding: '8px 12px',
+    backgroundColor: '#f9fafb',
+    borderRadius: '6px',
+    borderLeft: '3px solid #2563eb',
+  },
+  meterCard: {
+    backgroundColor: '#f8fafc',
+    border: '1px solid #e2e8f0',
+    borderRadius: '10px',
+    padding: '16px',
+    marginBottom: '16px',
+  },
+  meterHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '12px',
+    marginBottom: '12px',
+  },
+  meterLabel: {
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    display: 'block',
+    marginBottom: '2px',
+  },
+  scoreRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  meterScore: {
+    fontSize: '28px',
+    fontWeight: '800',
+  },
+  scoreTierBadge: {
+    fontSize: '11px',
+    fontWeight: '600',
+    padding: '3px 8px',
+    borderRadius: '6px',
+    backgroundColor: '#f1f5f9',
+    color: '#475569',
+  },
+  weightPills: {
+    display: 'flex',
+    gap: '8px',
+  },
+  weightPillItem: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    padding: '4px 10px',
+    minWidth: '65px',
+  },
+  weightVal: {
+    fontSize: '13px',
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  weightKey: {
+    fontSize: '10px',
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  progressBarBg: {
+    width: '100%',
+    height: '8px',
+    backgroundColor: '#e2e8f0',
+    borderRadius: '4px',
+    overflow: 'hidden',
+    marginBottom: '12px',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: '4px',
+    transition: 'width 0.4s ease',
+  },
+  explanationText: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '8px',
+    fontSize: '12px',
+    lineHeight: 1.5,
+    color: '#334155',
+    backgroundColor: '#ffffff',
+    padding: '10px 12px',
+    borderRadius: '6px',
+    border: '1px solid #e2e8f0',
+  },
+  expWarningAlert: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '10px',
+    padding: '12px 14px',
+    backgroundColor: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: '8px',
+    marginBottom: '16px',
+  },
+  expSuccessAlert: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '10px',
+    padding: '12px 14px',
+    backgroundColor: '#ecfdf5',
+    border: '1px solid #a7f3d0',
+    borderRadius: '8px',
+    marginBottom: '16px',
+  },
+  sectionCard: {
+    backgroundColor: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: '10px',
+    padding: '16px',
+    marginBottom: '16px',
+  },
+  sectionCardTitle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '14px',
+    fontWeight: '700',
+    color: '#111827',
+    margin: '0 0 14px 0',
+  },
+  skillGroupHeader: {
+    marginBottom: '6px',
+  },
+  skillGroupLabelSuccess: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#065f46',
+  },
+  skillGroupLabelCritical: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#991b1b',
+  },
+  skillGroupLabelSecondary: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#4b5563',
+  },
+  chipsContainer: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '6px',
+  },
+  matchedChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 9px',
+    borderRadius: '6px',
+    backgroundColor: '#ecfdf5',
+    border: '1px solid #a7f3d0',
+    color: '#065f46',
+    fontSize: '12px',
+    fontWeight: '500',
+  },
+  missingCriticalChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 9px',
+    borderRadius: '6px',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    color: '#b91c1c',
+    fontSize: '12px',
+    fontWeight: '500',
+  },
+  missingSecondaryChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '4px 9px',
+    borderRadius: '6px',
+    backgroundColor: '#f3f4f6',
+    border: '1px solid #e5e7eb',
+    color: '#4b5563',
+    fontSize: '12px',
+    fontWeight: '500',
+  },
+  emptySkillsNotice: {
+    fontSize: '12px',
+    color: '#9ca3af',
+    fontStyle: 'italic',
+  },
+  allSkillsMetNotice: {
+    fontSize: '12px',
+    color: '#059669',
+    fontWeight: '500',
+  },
+  adviceCard: {
+    backgroundColor: '#f5f3ff',
+    border: '1px solid #ddd6fe',
+    borderRadius: '10px',
+    padding: '16px',
+  },
+  adviceCardHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    marginBottom: '6px',
+  },
+  adviceCardTitle: {
+    fontSize: '14px',
+    fontWeight: '700',
+    color: '#5b21b6',
+    margin: 0,
+  },
+  adviceDisclaimer: {
+    fontSize: '11px',
+    color: '#6d28d9',
+    margin: '0 0 10px 0',
+  },
+  adviceList: {
+    margin: 0,
+    paddingLeft: '18px',
+  },
+  adviceListItem: {
+    fontSize: '12px',
+    lineHeight: 1.6,
+    color: '#4c1d95',
+    marginBottom: '6px',
+  },
 };
+

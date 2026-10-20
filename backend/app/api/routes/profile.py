@@ -71,6 +71,8 @@ def update_candidate_profile(
         profile.education = profile_in.education
     if profile_in.experience_level is not None:
         profile.experience_level = profile_in.experience_level
+    if profile_in.experience_years is not None:
+        profile.experience_years = profile_in.experience_years
     if profile_in.preferred_roles is not None:
         profile.preferred_roles = profile_in.preferred_roles
     if profile_in.preferred_locations is not None:
@@ -79,6 +81,7 @@ def update_candidate_profile(
         profile.preferred_work_mode = profile_in.preferred_work_mode
     if profile_in.salary_expectation is not None:
         profile.salary_expectation = profile_in.salary_expectation
+
 
     # Update skills if provided
     if profile_in.skills is not None:
