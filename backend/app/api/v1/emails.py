@@ -1,11 +1,14 @@
 import logging
-from typing import Optional
-from fastapi import APIRouter, Depends, Query, status, HTTPException
+import secrets
+from typing import Optional, Tuple
+from fastapi import APIRouter, Depends, Query, status, HTTPException, Request, Header
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.db.session import get_db
 from app.models.user import User
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_user_optional
+from app.core.config import settings
 from app.schemas.email_event import (
     EmailIngestRequest,
     EmailWebhookPayload,
@@ -21,9 +24,36 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/emails", tags=["Emails & Communications"])
 
+
+def authenticate_email_ingestion(
+    request: Request,
+    x_webhook_secret: Optional[str] = Header(None, alias="X-Webhook-Secret"),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+) -> Tuple[Optional[User], bool]:
+    """
+    Authenticates incoming email ingestion via either:
+    1. Authenticated candidate session (Bearer token or cookie)
+    2. Secure X-Webhook-Secret header for verified webhook integrations
+    Returns (user, is_webhook). Raises 401 if unauthenticated.
+    """
+    if current_user:
+        return current_user, False
+
+    if x_webhook_secret and settings.WEBHOOK_SECRET:
+        if secrets.compare_digest(x_webhook_secret, settings.WEBHOOK_SECRET):
+            return None, True
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required. Please provide valid session credentials or an authorized X-Webhook-Secret header.",
+        headers={"WWW-Authenticate": "Bearer"}
+    )
+
+
 @router.post("/ingest", response_model=EmailIngestTaskResponse, status_code=status.HTTP_202_ACCEPTED)
 def ingest_email(
     payload: EmailIngestRequest,
+    auth_ctx: Tuple[Optional[User], bool] = Depends(authenticate_email_ingestion),
     db: Session = Depends(get_db)
 ):
     """
@@ -32,6 +62,24 @@ def ingest_email(
     email, extract meeting links/deadlines, and link to candidate's pipeline.
     Falls back gracefully to synchronous execution if Celery broker is offline.
     """
+    user, is_webhook = auth_ctx
+    if user:
+        # Enforce candidate isolation: user cannot inject into another candidate's account
+        payload.user_id = user.id
+    else:
+        # Webhook caller: require explicit and valid candidate user_id
+        if not payload.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Webhook payload must specify a valid target candidate user_id."
+            )
+        target_user = db.execute(select(User).where(User.id == payload.user_id)).scalar_one_or_none()
+        if not target_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Target candidate user ID {payload.user_id} was not found."
+            )
+
     task_id = None
     email_event_id = None
     detected_cat = None
@@ -61,16 +109,18 @@ def ingest_email(
         linked_application_id=linked_app_id
     )
 
+
 @router.post("/webhook", response_model=EmailIngestTaskResponse, status_code=status.HTTP_202_ACCEPTED)
 def ingest_email_webhook(
     payload: EmailWebhookPayload,
+    auth_ctx: Tuple[Optional[User], bool] = Depends(authenticate_email_ingestion),
     db: Session = Depends(get_db)
 ):
     """
     Webhook alias for inbound recruitment email event ingestion.
     Preserves backwards compatibility with existing webhook tests and integrations.
     """
-    return ingest_email(payload=payload, db=db)
+    return ingest_email(payload=payload, auth_ctx=auth_ctx, db=db)
 
 @router.get("", response_model=EmailEventListResponse)
 def list_candidate_emails(

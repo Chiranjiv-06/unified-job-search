@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
+import httpx
 from app.core.security import create_access_token
 
 MOCK_JOB_HTML = """<!DOCTYPE html>
@@ -242,3 +243,164 @@ def test_import_job_invalid_url_rejected(client):
     )
     assert response.status_code == 400
     assert "must start with http" in response.json()["detail"].lower()
+
+
+def test_import_job_ssrf_loopback_and_internal_hosts_rejected(client):
+    """SSRF: Loopback addresses and internal docker hostnames must be rejected."""
+    headers = register_and_login(client, "ssrf_loopback@example.com")
+
+    blocked_targets = [
+        "http://127.0.0.1:8000/api/health",
+        "http://localhost:8000/api/health",
+        "http://[::1]:8000/api/health",
+        "http://0.0.0.0:8000/api/health",
+        "http://postgres:5432/",
+        "http://redis:6379/",
+        "http://backend:8000/api/health",
+    ]
+
+    for target in blocked_targets:
+        resp = client.post("/api/jobs/import-url", headers=headers, json={"url": target})
+        assert resp.status_code == 400, f"Expected 400 for blocked target: {target}"
+        detail = resp.json()["detail"].lower()
+        assert any(term in detail for term in ("forbidden", "restricted", "private", "hostname")), f"Unexpected error detail: {detail}"
+
+
+def test_import_job_ssrf_cloud_metadata_rejected(client):
+    """SSRF: Cloud metadata endpoints (AWS/GCP/OpenStack) must be rejected."""
+    headers = register_and_login(client, "ssrf_meta@example.com")
+
+    metadata_targets = [
+        "http://169.254.169.254/latest/meta-data/",
+        "http://metadata.google.internal/computeMetadata/v1/",
+    ]
+
+    for target in metadata_targets:
+        resp = client.post("/api/jobs/import-url", headers=headers, json={"url": target})
+        assert resp.status_code == 400
+        detail = resp.json()["detail"].lower()
+        assert any(term in detail for term in ("forbidden", "restricted", "cloud metadata"))
+
+
+def test_import_job_ssrf_private_networks_rejected(client):
+    """SSRF: RFC 1918 private network addresses must be rejected."""
+    headers = register_and_login(client, "ssrf_private@example.com")
+
+    private_ips = [
+        "http://10.0.0.1/admin",
+        "http://172.16.0.10:8000/status",
+        "http://192.168.1.1/router",
+    ]
+
+    for target in private_ips:
+        resp = client.post("/api/jobs/import-url", headers=headers, json={"url": target})
+        assert resp.status_code == 400
+        assert "forbidden" in resp.json()["detail"].lower()
+
+
+def test_import_job_ssrf_credentials_rejected(client):
+    """SSRF: URLs containing embedded credentials must be rejected."""
+    headers = register_and_login(client, "ssrf_creds@example.com")
+
+    resp = client.post(
+        "/api/jobs/import-url",
+        headers=headers,
+        json={"url": "http://admin:secret@example.com/careers/job"}
+    )
+    assert resp.status_code == 400
+    assert "credentials" in resp.json()["detail"].lower()
+
+
+def test_import_job_ssrf_hostname_resolving_to_private_ip(client):
+    """SSRF: Public hostnames that resolve to private/internal IPs must be blocked."""
+    headers = register_and_login(client, "ssrf_rebind@example.com")
+
+    # Mock socket.getaddrinfo to simulate a domain resolving to a private IP
+    mock_addr = [(2, 1, 6, '', ('10.0.0.5', 443))]
+    with patch("socket.getaddrinfo", return_value=mock_addr):
+        resp = client.post(
+            "/api/jobs/import-url",
+            headers=headers,
+            json={"url": "https://malicious-internal-rebind.com/job"}
+        )
+        assert resp.status_code == 400
+        assert "private" in resp.json()["detail"].lower() or "restricted" in resp.json()["detail"].lower()
+
+
+def test_import_job_ssrf_redirect_to_private_ip_rejected(client):
+    """SSRF: Redirects to private/internal addresses must be blocked."""
+    headers = register_and_login(client, "ssrf_redirect@example.com")
+
+    # Initial response is a 302 redirect to 127.0.0.1
+    mock_redirect_resp = MagicMock()
+    mock_redirect_resp.status_code = 302
+    mock_redirect_resp.headers = {"location": "http://127.0.0.1:8000/internal-secret"}
+
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]):
+        with patch("httpx.Client.get", return_value=mock_redirect_resp):
+            resp = client.post(
+                "/api/jobs/import-url",
+                headers=headers,
+                json={"url": "https://examplecorp.com/redirect"}
+            )
+            assert resp.status_code == 400
+            assert "forbidden" in resp.json()["detail"].lower() or "restricted" in resp.json()["detail"].lower()
+
+
+def test_import_job_ssrf_oversized_response_rejected(client):
+    """SSRF/DoS: Responses exceeding 2 MB must be rejected."""
+    headers = register_and_login(client, "ssrf_size@example.com")
+
+    oversized_content = b"A" * (2 * 1024 * 1024 + 1024)  # 2MB + 1KB
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"content-type": "text/html"}
+    mock_resp.content = oversized_content
+    mock_resp.text = oversized_content.decode("latin-1")
+
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]):
+        with patch("httpx.Client.get", return_value=mock_resp):
+            resp = client.post(
+                "/api/jobs/import-url",
+                headers=headers,
+                json={"url": "https://examplecorp.com/large-job"}
+            )
+            assert resp.status_code == 400
+            assert "2 mb" in resp.json()["detail"].lower()
+
+
+def test_import_job_ssrf_unsupported_content_type_rejected(client):
+    """SSRF: Non-HTML content types (e.g. binary/pdf) must be rejected."""
+    headers = register_and_login(client, "ssrf_content@example.com")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"content-type": "application/pdf"}
+    mock_resp.content = b"%PDF-1.4..."
+    mock_resp.text = "%PDF-1.4..."
+
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]):
+        with patch("httpx.Client.get", return_value=mock_resp):
+            resp = client.post(
+                "/api/jobs/import-url",
+                headers=headers,
+                json={"url": "https://examplecorp.com/job.pdf"}
+            )
+            assert resp.status_code == 400
+            assert "unsupported content type" in resp.json()["detail"].lower()
+
+
+def test_import_job_ssrf_timeout_handling(client):
+    """SSRF: Timeouts must return a safe error without leaking internals."""
+    headers = register_and_login(client, "ssrf_timeout@example.com")
+
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]):
+        with patch("httpx.Client.get", side_effect=httpx.TimeoutException("Read timed out")):
+            resp = client.post(
+                "/api/jobs/import-url",
+                headers=headers,
+                json={"url": "https://examplecorp.com/slow-job"}
+            )
+            assert resp.status_code == 400
+            assert "timed out" in resp.json()["detail"].lower()
+

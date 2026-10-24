@@ -136,7 +136,7 @@ def test_email_webhook_and_celery_task(client, db_session):
     app_id = app_res.json()["id"]
 
     # 1. Test Webhook Ingestion API
-    webhook_res = client.post("/api/v1/emails/webhook", json={
+    webhook_res = client.post("/api/v1/emails/webhook", headers=headers, json={
         "message_id": "msg_datadog_interview_101",
         "sender_email": "recruiting@datadog.com",
         "subject": "Interview Invitation: Software Engineer at Datadog",

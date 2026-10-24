@@ -7,11 +7,18 @@ from app.models.user import User
 from app.models.profile import CandidateProfile
 from app.schemas.user import UserRegister, UserLogin, UserResponse, TokenResponse
 from app.core.security import hash_password, verify_password, create_access_token
+from app.core.config import settings
+from app.core.rate_limiter import rate_limit
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("register", max_requests=20, window_seconds=60))]
+)
 def register(user_in: UserRegister, db: Session = Depends(get_db)):
     """
     Registers a new user account and initializes an empty candidate profile.
@@ -50,7 +57,11 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
 
     return user
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    dependencies=[Depends(rate_limit("login", max_requests=20, window_seconds=60))]
+)
 def login(login_in: UserLogin, response: Response, db: Session = Depends(get_db)):
     """
     Authenticates user credentials and issues a secure JWT access token.
@@ -76,14 +87,16 @@ def login(login_in: UserLogin, response: Response, db: Session = Depends(get_db)
     # Issue JWT token
     access_token = create_access_token(data={"sub": user.email, "uid": user.id})
 
-    # Set secure HttpOnly cookie (24h expiry)
+    # Set secure HttpOnly cookie
+    is_prod = settings.ENVIRONMENT.lower() == "production"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        max_age=86400,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
         samesite="lax",
-        secure=False  # Set to True in production with HTTPS
+        secure=is_prod
     )
 
     return TokenResponse(
@@ -104,5 +117,12 @@ def logout(response: Response):
     """
     Clears the HttpOnly access_token cookie.
     """
-    response.delete_cookie(key="access_token", httponly=True, samesite="lax")
+    is_prod = settings.ENVIRONMENT.lower() == "production"
+    response.delete_cookie(
+        key="access_token",
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=is_prod
+    )
     return {"message": "Logged out successfully"}

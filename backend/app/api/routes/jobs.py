@@ -14,6 +14,7 @@ from app.schemas.application import ApplicationResponse, TrackJobApplyRequest
 from app.services import job_service, matching_service
 from app.services.verification_service import VerificationService
 from app.services.application_service import ApplicationService
+from app.core.rate_limiter import rate_limit
 
 router = APIRouter(prefix="/jobs", tags=["Job Discovery & Records"])
 
@@ -65,7 +66,12 @@ def create_job(
     return job_service.create_job(db=db, job_in=job_in, user_id=current_user.id)
 
 
-@router.post("/import-url", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/import-url",
+    response_model=JobResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("import-url", max_requests=15, window_seconds=60))]
+)
 def import_job_from_url(
     import_in: JobImportRequest,
     current_user: User = Depends(get_current_user),

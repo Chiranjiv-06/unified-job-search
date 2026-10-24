@@ -171,7 +171,7 @@ def test_complete_candidate_lifecycle_end_to_end(client, db_session):
         "user_id": user_id,
         "date": datetime.now(timezone.utc).isoformat()
     }
-    email_res = client.post("/api/v1/emails/ingest", json=email_payload)
+    email_res = client.post("/api/v1/emails/ingest", headers=headers, json=email_payload)
     assert email_res.status_code == 202
 
     # Step 9: Verify reminder alert generation & draft follow-up
@@ -258,14 +258,24 @@ def test_cross_candidate_data_isolation(client, db_session):
 def test_production_security_hardening_validation():
     """
     Security Audit: Verifies that in production mode, default or placeholder
-    SECRET_KEY raises a critical ValueError on startup.
+    SECRET_KEY and default database credentials raise a critical ValueError on startup.
     """
     # Default placeholder key should raise ValueError in production
     with pytest.raises(ValueError, match="CRITICAL SECURITY ERROR"):
         Settings(
             ENVIRONMENT="production",
             SECRET_KEY="temporary_secret_key_change_in_production_min_32_characters",
-            DEBUG=False
+            DEBUG=False,
+            DATABASE_URL="postgresql+psycopg2://ujs_prod:P@ssw0rd99!@db.internal:5432/ujs"
+        )
+
+    # Docker-compose 60-char placeholder must be rejected
+    with pytest.raises(ValueError, match="CRITICAL SECURITY ERROR"):
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="generate_a_cryptographically_secure_random_key_min_32_characters",
+            DEBUG=False,
+            DATABASE_URL="postgresql+psycopg2://ujs_prod:P@ssw0rd99!@db.internal:5432/ujs"
         )
 
     # Short key (< 32 chars) should raise ValueError in production
@@ -273,14 +283,25 @@ def test_production_security_hardening_validation():
         Settings(
             ENVIRONMENT="production",
             SECRET_KEY="short_key_12345",
-            DEBUG=False
+            DEBUG=False,
+            DATABASE_URL="postgresql+psycopg2://ujs_prod:P@ssw0rd99!@db.internal:5432/ujs"
         )
 
-    # Valid 32+ char key with DEBUG=False should succeed in production
+    # Default postgres:postgres credentials must raise ValueError in production
+    with pytest.raises(ValueError, match="CRITICAL SECURITY ERROR"):
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="a_very_secure_cryptographic_random_string_over_32_characters_long!",
+            DEBUG=False,
+            DATABASE_URL="postgresql+psycopg2://postgres:postgres@localhost:5432/unified_job_search"
+        )
+
+    # Valid 32+ char key with strong DB credentials and DEBUG=False should succeed in production
     prod_settings = Settings(
         ENVIRONMENT="production",
         SECRET_KEY="a_very_secure_cryptographic_random_string_over_32_characters_long!",
-        DEBUG=False
+        DEBUG=False,
+        DATABASE_URL="postgresql+psycopg2://ujs_prod_user:StrongRandomProductionPassword2026!@prod-db.internal:5432/ujs_prod"
     )
     assert prod_settings.ENVIRONMENT == "production"
     assert prod_settings.DEBUG is False

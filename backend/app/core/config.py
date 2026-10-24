@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -40,23 +40,42 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
     MAX_FILE_SIZE_MB: int = 5
 
+    # Email Webhook Integration Secret
+    WEBHOOK_SECRET: Optional[str] = "ujs_dev_webhook_secret_key_change_in_prod"
+
     @model_validator(mode="after")
     def validate_production_security(self):
         insecure_keys = {
             "temporary_secret_key_change_in_production_min_32_characters",
+            "generate_a_cryptographically_secure_random_key_min_32_characters",
+            "replace_with_a_secure_random_secret_key_at_least_32_chars",
             "secret",
             "changeme",
             "password",
-            "your-secret-key-here"
+            "your-secret-key-here",
+            "admin",
+            "default"
         }
         if self.ENVIRONMENT.lower() == "production":
-            if not self.SECRET_KEY or self.SECRET_KEY in insecure_keys or len(self.SECRET_KEY) < 32:
+            sec_lower = (self.SECRET_KEY or "").lower()
+            if (
+                not self.SECRET_KEY
+                or self.SECRET_KEY in insecure_keys
+                or len(self.SECRET_KEY) < 32
+                or any(p in sec_lower for p in ["change_in_production", "replace_with", "random_key_min_32", "your-secret", "placeholder"])
+            ):
                 raise ValueError(
-                    "CRITICAL SECURITY ERROR: In production mode, SECRET_KEY must be set to a cryptographically secure string of at least 32 characters and cannot be a default placeholder."
+                    "CRITICAL SECURITY ERROR: In production mode, SECRET_KEY must be set to an explicitly configured, cryptographically secure string of at least 32 characters and cannot be a default or placeholder value."
                 )
             if self.DEBUG:
                 raise ValueError(
                     "CRITICAL SECURITY ERROR: DEBUG must be set to False in production mode."
+                )
+
+            db_url_lower = (self.DATABASE_URL or "").lower()
+            if any(default_cred in db_url_lower for default_cred in [":postgres@", ":password@", ":root@", ":123456@", "://postgres:postgres@"]):
+                raise ValueError(
+                    "CRITICAL SECURITY ERROR: In production mode, DATABASE_URL must not use default or placeholder database credentials ('postgres:postgres'). Please provide dedicated production database credentials."
                 )
         return self
     

@@ -1,9 +1,11 @@
+import ipaddress
 import json
 import logging
 import re
+import socket
 from datetime import datetime, timezone
-from typing import Optional, List, Tuple, Dict, Any
-from urllib.parse import urlparse
+from typing import Optional, List, Tuple, Dict, Any, Union
+from urllib.parse import urlparse, urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -19,6 +21,146 @@ from app.services.resume_service import extract_skills_from_text
 logger = logging.getLogger(__name__)
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 UnifiedJobSearchBot/1.0"
+MAX_REDIRECTS = 3
+MAX_RESPONSE_BYTES = 2 * 1024 * 1024  # 2 MB limit
+REQUEST_TIMEOUT_SECONDS = 5.0
+ALLOWED_SCHEMES = {"http", "https"}
+
+BLOCKED_HOSTNAMES = {
+    "localhost",
+    "metadata.google.internal",
+    "postgres",
+    "redis",
+    "backend",
+    "worker",
+    "frontend",
+    "ujs-postgres",
+    "ujs-redis",
+    "ujs-backend",
+    "ujs-worker",
+    "ujs-frontend",
+}
+
+
+def is_ip_address_allowed(ip_obj: Union[ipaddress.IPv4Address, ipaddress.IPv6Address]) -> bool:
+    """
+    Checks if an IP address is publicly routable and safe to access.
+    Explicitly rejects private, loopback, link-local, multicast, reserved,
+    cloud metadata (169.254.169.254), and unspecified addresses.
+    """
+    if ip_obj.is_loopback or ip_obj.is_private or ip_obj.is_link_local:
+        return False
+    if ip_obj.is_multicast or ip_obj.is_reserved or ip_obj.is_unspecified:
+        return False
+
+    # Check for IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1)
+    if isinstance(ip_obj, ipaddress.IPv6Address) and ip_obj.ipv4_mapped:
+        return is_ip_address_allowed(ip_obj.ipv4_mapped)
+
+    # Cloud metadata addresses
+    if str(ip_obj) in {"169.254.169.254", "169.254.169.123"}:
+        return False
+
+    return True
+
+
+def validate_url_destination(url_str: str) -> str:
+    """
+    Validates URL syntax, scheme, credentials, and resolves DNS to verify that all destination IPs are public.
+    Returns cleaned URL string.
+    Raises HTTPException(400) if invalid or disallowed.
+    """
+    clean_url = (url_str or "").strip()
+    if not clean_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job URL cannot be empty."
+        )
+
+    try:
+        parsed = urlsplit(clean_url)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Malformed job URL provided."
+        )
+
+    if parsed.scheme.lower() not in ALLOWED_SCHEMES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="URL must start with http:// or https://"
+        )
+
+    if parsed.username or parsed.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="URLs containing credentials are not permitted."
+        )
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="URL must contain a valid hostname."
+        )
+
+    norm_host = hostname.lower().strip()
+    if norm_host in BLOCKED_HOSTNAMES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Access to the specified host is restricted."
+        )
+
+    port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+
+    # Check if host is direct IP literal
+    try:
+        ip_obj = ipaddress.ip_address(norm_host)
+        if not is_ip_address_allowed(ip_obj):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Access to private, loopback, or cloud metadata IP addresses is forbidden."
+            )
+        return clean_url
+    except ValueError:
+        # Not a raw IP literal, proceed to DNS resolution
+        pass
+
+    try:
+        addr_info = socket.getaddrinfo(norm_host, port, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unable to resolve hostname '{norm_host}'."
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DNS resolution failed for the target URL."
+        )
+
+    if not addr_info:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No IP addresses resolved for hostname '{norm_host}'."
+        )
+
+    for item in addr_info:
+        resolved_ip_str = item[4][0]
+        try:
+            ip_obj = ipaddress.ip_address(resolved_ip_str)
+            if not is_ip_address_allowed(ip_obj):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="The target hostname resolves to a private, loopback, or restricted network address."
+                )
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid IP address encountered during host resolution."
+            )
+
+    return clean_url
 
 
 def extract_domain_from_url(url: Optional[str]) -> Optional[str]:
@@ -226,38 +368,105 @@ def parse_job_html_content(html: str, source_url: str) -> Dict[str, Any]:
     return parsed_data
 
 
+def fetch_job_html_from_url(initial_url: str) -> str:
+    """
+    Safely fetches HTML content from a verified external URL, strictly enforcing SSRF protections,
+    hop-by-hop redirect destination checks, size caps (2MB), and HTML content-type restrictions.
+    """
+    current_url = validate_url_destination(initial_url)
+    redirects_remaining = MAX_REDIRECTS
+
+    timeout_config = httpx.Timeout(
+        REQUEST_TIMEOUT_SECONDS,
+        connect=REQUEST_TIMEOUT_SECONDS,
+        read=REQUEST_TIMEOUT_SECONDS
+    )
+
+    while True:
+        try:
+            with httpx.Client(
+                headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"},
+                timeout=timeout_config,
+                follow_redirects=False
+            ) as client:
+                response = client.get(current_url)
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Connection to target job URL timed out."
+            )
+        except httpx.RequestError as exc:
+            logger.error("Failed to connect to job URL %s: %s", current_url, exc)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unable to connect to the provided job URL. Network error."
+            )
+
+        # Check for redirects
+        if response.status_code in (301, 302, 303, 307, 308):
+            if redirects_remaining <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Too many redirects encountered while fetching job URL."
+                )
+            redirect_target = response.headers.get("location")
+            if not redirect_target:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Redirect response missing Location header."
+                )
+            next_url = urljoin(current_url, redirect_target)
+            current_url = validate_url_destination(next_url)
+            redirects_remaining -= 1
+            continue
+
+        if response.status_code >= 400:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Target job URL returned HTTP status {response.status_code}. The page may be private or removed."
+            )
+
+        # Check content type if provided
+        headers = getattr(response, "headers", None)
+        content_type = ""
+        if isinstance(headers, (dict, httpx.Headers)):
+            content_type = (headers.get("content-type") or "").lower()
+
+        if isinstance(content_type, str) and content_type:
+            if not any(ct in content_type for ct in ("text/html", "application/xhtml+xml", "text/plain")):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Target URL returned unsupported content type '{content_type}'. Expected HTML document."
+                )
+
+        # Check payload size limit
+        content_bytes = getattr(response, "content", None)
+        if not isinstance(content_bytes, (bytes, bytearray)):
+            text_val = getattr(response, "text", None)
+            if isinstance(text_val, str):
+                content_bytes = text_val.encode("utf-8")
+            else:
+                content_bytes = b""
+
+        if len(content_bytes) > MAX_RESPONSE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Target job page exceeds the maximum permitted size limit of 2 MB."
+            )
+
+        resp_text = getattr(response, "text", None)
+        if isinstance(resp_text, str):
+            return resp_text
+        return content_bytes.decode("utf-8", errors="ignore")
+
+
 def import_job_from_url(db: Session, url: str, user_id: Optional[int] = None) -> Job:
     """
     Safely fetches and imports a job opportunity from a user-provided HTTP/HTTPS URL.
     Respects robots/terms, parses metadata, extracts skills, and saves job record.
     """
-    clean_url = url.strip()
-    if not clean_url.startswith(("http://", "https://")):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="URL must start with http:// or https://"
-        )
-
-    try:
-        with httpx.Client(
-            headers={"User-Agent": USER_AGENT},
-            timeout=10.0,
-            follow_redirects=True
-        ) as client:
-            resp = client.get(clean_url)
-            if resp.status_code >= 400:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Target job URL returned HTTP status {resp.status_code}. The page may be private or removed."
-                )
-            html_text = resp.text
-    except httpx.RequestError as exc:
-        logger.error("Failed to connect to job URL %s: %s", clean_url, exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unable to connect to the provided job URL. Network error: {str(exc)}"
-        )
-
+    clean_url = validate_url_destination(url)
+    html_text = fetch_job_html_from_url(clean_url)
     parsed = parse_job_html_content(html_text, clean_url)
 
     job_create = JobCreate(

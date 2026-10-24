@@ -37,6 +37,9 @@ api.interceptors.response.use(
     let errorMessage = 'An unexpected error occurred.';
     
     if (error.response) {
+      if (error.response.status === 401) {
+        setAuthToken(null);
+      }
       errorMessage = error.response.data?.detail || error.response.data?.message || `Server error (${error.response.status})`;
     } else if (error.request) {
       errorMessage = 'Backend server is unreachable. Please verify that the API server is running.';

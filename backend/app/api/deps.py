@@ -61,3 +61,41 @@ def get_current_user(
         )
 
     return user
+
+
+def get_current_user_optional(
+    request: Request,
+    auth_header: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """
+    Retrieves the authenticated user if credentials are provided and valid.
+    Returns None if no credentials are provided. Raises 401 if invalid credentials provided.
+    """
+    token: Optional[str] = None
+    if auth_header and auth_header.credentials:
+        token = auth_header.credentials
+    elif "access_token" in request.cookies:
+        token = request.cookies.get("access_token")
+
+    if not token:
+        return None
+
+    payload = decode_access_token(token)
+    if not payload or "sub" not in payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    email = payload.get("sub")
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is invalid or inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return user

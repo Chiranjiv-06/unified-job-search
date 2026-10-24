@@ -178,3 +178,64 @@ def test_user_isolation(client):
     profile_b = client.get("/api/profile", headers={"Authorization": f"Bearer {token_b}"}).json()
     assert profile_b["education"] != "IIT Bombay - Computer Science"
     assert profile_b["preferred_roles"] != "AI Researcher"
+
+
+def test_login_and_logout_cookie_lifecycle(client):
+    """Verifies that login sets HttpOnly cookie and logout clears it."""
+    client.post("/api/auth/register", json={
+        "full_name": "Cookie User",
+        "email": "cookie_tester@example.com",
+        "password": "Password123!"
+    })
+    login_res = client.post("/api/auth/login", json={
+        "email": "cookie_tester@example.com",
+        "password": "Password123!"
+    })
+    assert login_res.status_code == 200
+    assert "access_token" in login_res.cookies
+
+    # Access /api/auth/me using the cookie (without Authorization header)
+    me_res = client.get("/api/auth/me")
+    assert me_res.status_code == 200
+    assert me_res.json()["email"] == "cookie_tester@example.com"
+
+    # Logout
+    logout_res = client.post("/api/auth/logout")
+    assert logout_res.status_code == 200
+
+    # Cookie is invalidated/cleared
+    cookie_val = client.cookies.get("access_token")
+    assert cookie_val is None or cookie_val == ""
+
+
+def test_rate_limiter_blocks_excessive_requests(client):
+    """Verifies that exceeding rate limit threshold returns 429 Too Many Requests."""
+    from unittest.mock import patch, MagicMock
+
+    mock_redis = MagicMock()
+    mock_redis.incr.return_value = 25  # Exceeds max_requests of 20
+    mock_redis.ttl.return_value = 45
+
+    with patch("app.core.rate_limiter.get_redis_client", return_value=mock_redis):
+        res = client.post("/api/auth/login", json={
+            "email": "ratelimit@example.com",
+            "password": "Password123!"
+        })
+        assert res.status_code == 429
+        assert "Too many requests" in res.json()["detail"]
+        assert "Retry-After" in res.headers
+
+
+def test_rate_limiter_fails_open_when_redis_offline(client):
+    """Verifies that rate limiter fails open without blocking requests if Redis is offline."""
+    from unittest.mock import patch
+
+    with patch("app.core.rate_limiter.get_redis_client", return_value=None):
+        res = client.post("/api/auth/login", json={
+            "email": "nonexistent_failopen@example.com",
+            "password": "Password123!"
+        })
+        # Fails open: returns normal business logic 401 instead of crashing with 500 or 429
+        assert res.status_code == 401
+
+

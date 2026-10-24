@@ -44,7 +44,7 @@ def test_inbound_email_ingest_and_celery_task_execution(client, db_session):
         "user_id": user_id,
         "date": datetime.now(timezone.utc).isoformat()
     }
-    ingest_res = client.post("/api/v1/emails/ingest", json=ingest_payload)
+    ingest_res = client.post("/api/v1/emails/ingest", headers=headers, json=ingest_payload)
     assert ingest_res.status_code == 202
     data = ingest_res.json()
     assert data["message_id"] == "msg_datadog_ingest_001"
@@ -160,7 +160,7 @@ def test_scam_alert_email_detection(client, db_session):
         "body": "Congratulations! Please send money wire transfer for $450 equipment deposit and contact @hr_recruiter_bot on telegram for telegram interview.",
         "user_id": 1
     }
-    res = client.post("/api/v1/emails/ingest", json=scam_payload)
+    res = client.post("/api/v1/emails/ingest", headers=headers, json=scam_payload)
     assert res.status_code == 202
 
     # Run directly via task to inspect classification result
@@ -272,3 +272,82 @@ def test_candidate_email_user_isolation(client, db_session):
         "application_id": app_b["id"]
     })
     assert bad_link.status_code == 404
+
+
+def test_unauthenticated_email_ingest_rejected(client):
+    """Security: Unauthenticated requests to /api/v1/emails/ingest must be rejected with 401."""
+    res = client.post("/api/v1/emails/ingest", json={
+        "subject": "Phishing Attempt",
+        "body": "Unauthenticated injection",
+        "user_id": 1
+    })
+    assert res.status_code == 401
+
+
+def test_email_ingest_user_id_spoofing_prevented(client, db_session):
+    """
+    Security: When an authenticated candidate ingests an email, the endpoint must
+    strictly attribute it to the authenticated user and ignore any spoofed user_id in payload.
+    """
+    token_a = get_auth_token(client, "victim_user@example.com")
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    token_b = get_auth_token(client, "attacker_user@example.com")
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    # Obtain User A's ID
+    me_a = client.get("/api/auth/me", headers=headers_a).json()
+    user_a_id = me_a["id"]
+
+    # Attacker B attempts to inject an email into User A's pipeline by specifying user_id = user_a_id
+    spoof_payload = {
+        "message_id": "msg_spoofed_attempt_001",
+        "sender": "fake_recruiter@company.com",
+        "subject": "Spoofed Status Update: REJECTED",
+        "body": "You have been rejected.",
+        "user_id": user_a_id  # Attacker B supplies User A's ID
+    }
+    from unittest.mock import patch
+    with patch("app.api.v1.emails.process_incoming_email_task.delay", side_effect=Exception("sync")):
+        res = client.post("/api/v1/emails/ingest", headers=headers_b, json=spoof_payload)
+    assert res.status_code == 202
+    event_id = res.json()["email_event_id"]
+    assert event_id is not None
+
+    # Verify that User A does NOT see this email in their inbox
+    list_a = client.get("/api/v1/emails", headers=headers_a).json()["items"]
+    assert not any(item["id"] == event_id for item in list_a)
+
+    # Verify that it was forced to Attacker B's account
+    list_b = client.get("/api/v1/emails", headers=headers_b).json()["items"]
+    assert any(item["id"] == event_id for item in list_b)
+
+
+def test_webhook_ingest_secret_header_success(client):
+    """Security: Webhook ingestion with valid X-Webhook-Secret header succeeds."""
+    token = get_auth_token(client, "webhook_user@example.com")
+    headers_user = {"Authorization": f"Bearer {token}"}
+    user_id = client.get("/api/auth/me", headers=headers_user).json()["id"]
+
+    from app.core.config import settings
+    webhook_headers = {"X-Webhook-Secret": settings.WEBHOOK_SECRET}
+
+    res = client.post("/api/v1/emails/webhook", headers=webhook_headers, json={
+        "message_id": "msg_verified_webhook_001",
+        "sender_email": "notifications@lever.co",
+        "subject": "Application Update from Lever",
+        "body_text": "Your application was reviewed.",
+        "user_id": user_id
+    })
+    assert res.status_code == 202
+    assert res.json()["message_id"] == "msg_verified_webhook_001"
+
+
+def test_webhook_ingest_invalid_secret_rejected(client):
+    """Security: Webhook ingestion with invalid X-Webhook-Secret header must be rejected with 401."""
+    res = client.post("/api/v1/emails/webhook", headers={"X-Webhook-Secret": "wrong_secret_123"}, json={
+        "subject": "Unauthorized Webhook",
+        "user_id": 1
+    })
+    assert res.status_code == 401
+

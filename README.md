@@ -7,7 +7,7 @@ A candidate-centric, production-grade career platform that connects job discover
 [![React](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests: 63 Passing](https://img.shields.io/badge/Tests-63%20Passing-brightgreen.svg)]()
+[![Tests: 79 Passing](https://img.shields.io/badge/Tests-79%20Passing-brightgreen.svg)]()
 
 ---
 
@@ -84,7 +84,7 @@ unified-job-search/
 │   │   ├── schemas/           # Pydantic request/response models
 │   │   ├── services/          # Matching, verification, reminders, resume parsing
 │   │   └── workers/           # Celery application & task handlers
-│   └── tests/                 # 63 automated unit, integration & E2E smoke tests
+│   └── tests/                 # 79 automated unit, integration, security & E2E smoke tests
 └── frontend/                  # React + Vite Frontend
     ├── Dockerfile             # Multi-stage Vite build + Nginx runner
     ├── nginx.conf             # Nginx reverse proxy & SPA router fallback
@@ -158,22 +158,24 @@ npm run dev
 ## 🧪 Quality Gates & Automated Testing
 
 ### Backend Test Suite (Pytest)
-Run the full 63-test regression suite:
+Run the full 79-test regression and security suite:
 ```bash
 cd backend
 python -m pytest tests -v
 ```
 
-**Test Coverage by Subsystem**:
-- `test_auth_and_profile.py`: Registration, duplicate rejection, login, JWT validation, profile updates, and candidate isolation.
-- `test_resume_upload.py`: PDF validation, MIME type enforcement, 5MB limit, skill extraction heuristics.
-- `test_jobs.py`: Discovered job CRUD, pagination, filtering, URL job import.
-- `test_verification_signals.py`: Domain validation, MX DNS records, ATS careers verification, scam fee detection, Telegram interview fraud detection.
-- `test_matching_service.py`: Exact and synonym technical matching, missing critical skill breakdown, experience gap weighting.
-- `test_application_tracking.py`: Direct application tracking, duplicate prevention, Kanban stage transition history, notes & timeline updates.
-- `test_email_integration.py`: Inbound email ingestion, automated interview/assessment detection, scam warning flagging.
-- `test_reminders_and_followup.py`: Aging status engine, deadline alert scheduler, stage-differentiated follow-up drafter.
-- `test_e2e_lifecycle.py`: Complete candidate end-to-end integration smoke test from registration to follow-up draft.
+**Test Coverage by Subsystem (79 Tests Passing)**:
+- `test_auth_and_profile.py` (13 tests): Registration, duplicate rejection, login, JWT validation, profile updates, cookie security (`HttpOnly`, `SameSite=Lax`, `Secure`), Redis rate limiting, and candidate isolation.
+- `test_resume_upload.py` (6 tests): PDF validation, MIME type enforcement, 5MB limit, skill extraction heuristics, and candidate skills review.
+- `test_jobs.py` (16 tests): Discovered job CRUD, pagination, filtering, URL job import, and comprehensive SSRF defense suite (loopback, private subnets, cloud metadata `169.254.169.254`, credentialed URLs, DNS rebinding, hop-by-hop redirects, 2MB size cap, content-type checks, and timeouts).
+- `test_verification_signals.py` (7 tests): Domain validation, MX DNS records, ATS careers verification, scam fee detection, Telegram interview fraud detection, and disposable domain detection.
+- `test_matching_service.py` (6 tests): Exact and synonym technical matching, missing critical skill breakdown, experience gap weighting, and candidate ranking.
+- `test_application_tracking.py` (6 tests): Direct application tracking, duplicate prevention, Kanban stage transition history, notes & timeline updates, metrics, and candidate isolation.
+- `test_email_integration.py` (10 tests): Inbound email ingestion, automated interview/assessment detection, webhook secret header authentication, caller user-ID spoofing rejection, and scam warning flagging.
+- `test_reminders_and_followup.py` (6 tests): Aging status engine, deadline alert scheduler, stage-differentiated follow-up drafter, and user isolation.
+- `test_e2e_lifecycle.py` (3 tests): Complete candidate end-to-end integration smoke test from registration to follow-up draft, cross-tenant isolation, and production startup security validation (rejecting docker/env placeholders and default DB passwords).
+- `test_health.py` (4 tests): Root health check, database ping, and error propagation.
+- `test_v1_applications_and_verification.py` (3 tests): V1 route contract checks, verification endpoint, and email ingestion tasks.
 
 ### Frontend Quality Assurance
 ```bash
@@ -229,10 +231,28 @@ npm run build   # Compiles production-ready Vite client bundle
 
 ## 🔒 Security Best Practices & Guardrails
 
-1. **Strict Candidate-Consent Enforced**: The system **never** automatically sends emails or rejects applications based merely on inactivity. All follow-up actions require explicit user review, customization, and candidate dispatch.
-2. **Production Startup Hardening**: In `production` mode, the application terminates immediately on startup if `SECRET_KEY` is missing, short (<32 characters), or matches default placeholder strings.
-3. **Cross-Tenant Isolation**: Candidate data is strictly isolated by foreign key constraints and dependency authentication (`current_user.id`). Unauthorized cross-tenant queries return `403 Forbidden` or `404 Not Found`.
-4. **Least-Privilege Containerization**: Docker containers run under a non-root system user (`appuser` with UID 1000).
+1. **Strict Candidate-Consent Enforced**: The system **never** automatically sends emails or alters candidate pipelines without human review. All follow-up actions require explicit user review, customization, and candidate dispatch.
+2. **Production Startup Hardening**: In `production` mode, the application terminates immediately on startup if `SECRET_KEY` is missing, short (<32 characters), or matches placeholder strings (including docker and env templates), or if default database passwords (`postgres`, `password`, `root`) are detected.
+3. **Comprehensive SSRF Mitigation Engine**: All user-supplied job import URLs undergo strict protocol verification (`http`/`https`), DNS resolution checks blocking loopback (`127.0.0.0/8`, `::1`), private RFC 1918 subnets, link-local / cloud metadata endpoints (`169.254.169.254`, `fe80::`), credential stripping, hop-by-hop redirect verification (max 3 hops), finite 5-second timeouts, and a strict 2 MB response size limit.
+4. **Email Webhook Ingestion Protection**: Inbound recruitment email endpoints require either an active authenticated candidate session or a valid `X-Webhook-Secret` header matching `settings.WEBHOOK_SECRET`. Authenticated candidate requests strictly scope the ingestion to `user.id`, preventing caller user-ID spoofing.
+5. **Secure Cookie & Session Lifecycle**: Authentication cookies use `HttpOnly`, `SameSite=Lax`, environment-aware `Secure` attributes, and full expiration upon logout. Frontend clients automatically clear stale session tokens on HTTP 401.
+6. **Abuse Prevention & Rate Limiting**: Critical endpoints (`/api/auth/login`, `/api/auth/register`, `/api/jobs/import-url`) are protected by a Redis-backed fixed-window rate limiter with graceful fail-open resilience when Redis is unavailable.
+7. **Database Transaction Safety**: Request database sessions automatically perform `db.rollback()` on unhandled exceptions prior to cleanup, preventing partial commit corruption.
+8. **Cross-Tenant Isolation**: Candidate data is strictly isolated by foreign key constraints and dependency authentication (`current_user.id`). Unauthorized cross-tenant queries return `403 Forbidden` or `404 Not Found`.
+9. **Least-Privilege Containerization**: Docker containers run under a non-root system user (`appuser` with UID 1000).
+
+---
+
+## 🗺️ Feature Status & External Integration Roadmap
+
+| Subsystem | Current Implementation Status | External Requirements / Roadmap |
+|---|---|---|
+| **Job Discovery & URL Import** | ✅ Implemented (Manual CRUD, filtering, secure SSRF-protected URL HTML parser) | 📋 Planned: Direct LinkedIn / Indeed scraper APIs (requires third-party API credentials) |
+| **Legitimacy Verification Signals** | ✅ Implemented (DNS/MX inspection, ATS career URL matching, fee/telegram scam heuristics) | 📋 Fully operational without external paid APIs |
+| **Explainable Job Matching** | ✅ Implemented (Normalized exact/synonym skill matching, critical gaps, experience delta) | 📋 Fully self-contained local matching algorithm |
+| **Kanban Application Tracking** | ✅ Implemented (7-stage pipeline, metrics, activity notes, timeline audit, duplicate warnings) | 📋 Fully self-contained PostgreSQL persistence |
+| **Recruitment Email Hub** | ✅ Implemented (Signed webhook ingestion, candidate session ingestion, category parser) | 📋 Planned: Live background Gmail / IMAP mailbox sync (requires Google OAuth client credentials) |
+| **Reminders & Follow-Up Drafter** | ✅ Implemented (Aging status engine, deadline alerts, stage/tone-differentiated drafting) | 📋 Strict candidate-consent: No automated dispatch without candidate action |
 
 ---
 

@@ -263,10 +263,12 @@ class EmailService:
 
         target_user_id = payload.user_id
         if not target_user_id:
-            # Fallback to first user in system if not explicitly passed
-            from app.models.user import User
-            first_user = db.execute(select(User).limit(1)).scalar_one_or_none()
-            target_user_id = first_user.id if first_user else 1
+            raise ValueError("Target candidate user ID must be provided for email ingestion.")
+
+        from app.models.user import User
+        target_user = db.execute(select(User).where(User.id == target_user_id)).scalar_one_or_none()
+        if not target_user:
+            raise ValueError(f"Target candidate user ID {target_user_id} was not found.")
 
         linked_app, confidence, requires_review, potential_ids = cls.resolve_application_for_email(
             db=db,

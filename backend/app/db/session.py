@@ -24,11 +24,15 @@ SessionLocal = sessionmaker(
 
 def get_db() -> Generator[Session, None, None]:
     """
-    FastAPI dependency that yields a database session per request
-    and guarantees it is closed when the request finishes.
+    FastAPI dependency that yields a database session per request,
+    guarantees transaction rollback on unhandled exceptions, and safely closes the session.
     """
     db = SessionLocal()
     try:
         yield db
+    except Exception as exc:
+        logger.error("Unhandled exception during request database session: %s. Rolling back.", exc)
+        db.rollback()
+        raise
     finally:
         db.close()

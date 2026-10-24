@@ -44,7 +44,8 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       DEBUG: ${DEBUG:-False}
-      SECRET_KEY: ${SECRET_KEY:-generate_a_cryptographically_secure_random_key_min_32_characters}
+      SECRET_KEY: ${SECRET_KEY:?Error: SECRET_KEY must be set in your .env file for production security}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-ujs_dev_webhook_secret_key_change_in_prod}
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-unified_job_search}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -72,7 +73,8 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       DEBUG: ${DEBUG:-False}
-      SECRET_KEY: ${SECRET_KEY:-generate_a_cryptographically_secure_random_key_min_32_characters}
+      SECRET_KEY: ${SECRET_KEY:?Error: SECRET_KEY must be set in your .env file for production security}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-ujs_dev_webhook_secret_key_change_in_prod}
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-unified_job_search}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
