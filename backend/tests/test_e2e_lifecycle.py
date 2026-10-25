@@ -274,6 +274,7 @@ def test_production_security_hardening_validation():
         Settings(
             ENVIRONMENT="production",
             SECRET_KEY="generate_a_cryptographically_secure_random_key_min_32_characters",
+            WEBHOOK_SECRET="a_valid_random_webhook_secret_over_32_characters!",
             DEBUG=False,
             DATABASE_URL="postgresql+psycopg2://ujs_prod:P@ssw0rd99!@db.internal:5432/ujs"
         )
@@ -283,6 +284,7 @@ def test_production_security_hardening_validation():
         Settings(
             ENVIRONMENT="production",
             SECRET_KEY="short_key_12345",
+            WEBHOOK_SECRET="a_valid_random_webhook_secret_over_32_characters!",
             DEBUG=False,
             DATABASE_URL="postgresql+psycopg2://ujs_prod:P@ssw0rd99!@db.internal:5432/ujs"
         )
@@ -292,16 +294,59 @@ def test_production_security_hardening_validation():
         Settings(
             ENVIRONMENT="production",
             SECRET_KEY="a_very_secure_cryptographic_random_string_over_32_characters_long!",
+            WEBHOOK_SECRET="a_valid_random_webhook_secret_over_32_characters!",
             DEBUG=False,
             DATABASE_URL="postgresql+psycopg2://postgres:postgres@localhost:5432/unified_job_search"
         )
 
-    # Valid 32+ char key with strong DB credentials and DEBUG=False should succeed in production
+    # Default repo WEBHOOK_SECRET must be rejected in production
+    with pytest.raises(ValueError, match="CRITICAL SECURITY ERROR.*WEBHOOK_SECRET"):
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="a_very_secure_cryptographic_random_string_over_32_characters_long!",
+            WEBHOOK_SECRET="ujs_dev_webhook_secret_key_change_in_prod",
+            DEBUG=False,
+            DATABASE_URL="postgresql+psycopg2://ujs_prod:P@ssw0rd99!@db.internal:5432/ujs"
+        )
+
+    # Placeholder WEBHOOK_SECRET must be rejected in production
+    with pytest.raises(ValueError, match="CRITICAL SECURITY ERROR.*WEBHOOK_SECRET"):
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="a_very_secure_cryptographic_random_string_over_32_characters_long!",
+            WEBHOOK_SECRET="replace_with_a_secure_webhook_secret_key_for_external_ingest",
+            DEBUG=False,
+            DATABASE_URL="postgresql+psycopg2://ujs_prod:P@ssw0rd99!@db.internal:5432/ujs"
+        )
+
+    # Short WEBHOOK_SECRET (< 32 chars) must be rejected in production
+    with pytest.raises(ValueError, match="CRITICAL SECURITY ERROR.*WEBHOOK_SECRET"):
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="a_very_secure_cryptographic_random_string_over_32_characters_long!",
+            WEBHOOK_SECRET="short_webhook_sec",
+            DEBUG=False,
+            DATABASE_URL="postgresql+psycopg2://ujs_prod:P@ssw0rd99!@db.internal:5432/ujs"
+        )
+
+    # Missing WEBHOOK_SECRET must be rejected in production
+    with pytest.raises(ValueError, match="CRITICAL SECURITY ERROR.*WEBHOOK_SECRET"):
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="a_very_secure_cryptographic_random_string_over_32_characters_long!",
+            WEBHOOK_SECRET="",
+            DEBUG=False,
+            DATABASE_URL="postgresql+psycopg2://ujs_prod:P@ssw0rd99!@db.internal:5432/ujs"
+        )
+
+    # Valid 32+ char key and webhook secret with strong DB credentials and DEBUG=False should succeed in production
     prod_settings = Settings(
         ENVIRONMENT="production",
         SECRET_KEY="a_very_secure_cryptographic_random_string_over_32_characters_long!",
+        WEBHOOK_SECRET="a_very_secure_cryptographic_random_webhook_secret_over_32_chars!",
         DEBUG=False,
         DATABASE_URL="postgresql+psycopg2://ujs_prod_user:StrongRandomProductionPassword2026!@prod-db.internal:5432/ujs_prod"
     )
     assert prod_settings.ENVIRONMENT == "production"
     assert prod_settings.DEBUG is False
+    assert len(prod_settings.WEBHOOK_SECRET) >= 32

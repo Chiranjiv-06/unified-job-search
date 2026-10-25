@@ -9,9 +9,17 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     API_V1_STR: str = "/api/v1"
     
-    # Server
+    # Server & Reverse Proxy
     BACKEND_HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
+    TRUSTED_PROXIES: List[str] = [
+        "127.0.0.1",
+        "::1",
+        "testclient",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16"
+    ]
     
     # CORS
     FRONTEND_URL: str = "http://localhost:5173"
@@ -49,6 +57,8 @@ class Settings(BaseSettings):
             "temporary_secret_key_change_in_production_min_32_characters",
             "generate_a_cryptographically_secure_random_key_min_32_characters",
             "replace_with_a_secure_random_secret_key_at_least_32_chars",
+            "ujs_dev_webhook_secret_key_change_in_prod",
+            "replace_with_a_secure_webhook_secret_key_for_external_ingest",
             "secret",
             "changeme",
             "password",
@@ -70,6 +80,17 @@ class Settings(BaseSettings):
             if self.DEBUG:
                 raise ValueError(
                     "CRITICAL SECURITY ERROR: DEBUG must be set to False in production mode."
+                )
+
+            webhook_lower = (self.WEBHOOK_SECRET or "").lower()
+            if (
+                not self.WEBHOOK_SECRET
+                or self.WEBHOOK_SECRET in insecure_keys
+                or len(self.WEBHOOK_SECRET) < 32
+                or any(p in webhook_lower for p in ["change_in_prod", "change_in_production", "replace_with", "placeholder", "dev_webhook"])
+            ):
+                raise ValueError(
+                    "CRITICAL SECURITY ERROR: In production mode, WEBHOOK_SECRET must be set to an explicitly configured, cryptographically secure string of at least 32 characters and cannot be a default or placeholder value."
                 )
 
             db_url_lower = (self.DATABASE_URL or "").lower()

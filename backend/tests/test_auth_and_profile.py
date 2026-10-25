@@ -239,3 +239,85 @@ def test_rate_limiter_fails_open_when_redis_offline(client):
         assert res.status_code == 401
 
 
+def test_rate_limiter_trusted_proxy_and_client_ip_resolution(client):
+    """
+    Verifies that client IPs behind trusted proxies are resolved correctly,
+    spoofed headers from untrusted direct peers are ignored,
+    and multiple clients receive independent rate limiting counters.
+    """
+    from unittest.mock import patch, MagicMock
+    from fastapi import Request
+    from app.core.rate_limiter import get_client_ip
+
+    trusted = ["127.0.0.1", "172.16.0.0/12"]
+
+    # 1. Direct request without proxy headers -> uses direct peer IP
+    scope_direct = {"type": "http", "client": ("203.0.113.10", 54321), "headers": []}
+    req_direct = Request(scope_direct)
+    assert get_client_ip(req_direct, trusted_proxies=trusted) == "203.0.113.10"
+
+    # 2. Untrusted peer sending spoofed X-Forwarded-For -> ignores header, uses direct peer IP
+    scope_spoof = {
+        "type": "http",
+        "client": ("198.51.100.55", 54321),
+        "headers": [(b"x-forwarded-for", b"8.8.8.8, 1.1.1.1")]
+    }
+    req_spoof = Request(scope_spoof)
+    assert get_client_ip(req_spoof, trusted_proxies=trusted) == "198.51.100.55"
+
+    # 3. Trusted reverse proxy (e.g. Nginx at 172.18.0.2) forwarding valid client IP
+    scope_proxy = {
+        "type": "http",
+        "client": ("172.18.0.2", 8000),
+        "headers": [(b"x-forwarded-for", b"203.0.113.77")]
+    }
+    req_proxy = Request(scope_proxy)
+    assert get_client_ip(req_proxy, trusted_proxies=trusted) == "203.0.113.77"
+
+    # 4. Trusted proxy chain with internal proxy hops -> selects rightmost untrusted IP
+    scope_chain = {
+        "type": "http",
+        "client": ("172.18.0.2", 8000),
+        "headers": [(b"x-forwarded-for", b"198.51.100.1, 203.0.113.99, 172.18.0.10")]
+    }
+    req_chain = Request(scope_chain)
+    assert get_client_ip(req_chain, trusted_proxies=trusted) == "203.0.113.99"
+
+    # 5. Trusted proxy with X-Real-IP fallback
+    scope_real_ip = {
+        "type": "http",
+        "client": ("127.0.0.1", 8000),
+        "headers": [(b"x-real-ip", b"203.0.113.88")]
+    }
+    req_real_ip = Request(scope_real_ip)
+    assert get_client_ip(req_real_ip, trusted_proxies=trusted) == "203.0.113.88"
+
+    # 6. End-to-end integration: Two clients behind trusted Nginx get distinct rate limiting keys
+    mock_redis = MagicMock()
+    redis_keys = []
+
+    def mock_incr(key):
+        redis_keys.append(key)
+        return len(redis_keys)
+
+    mock_redis.incr.side_effect = mock_incr
+    mock_redis.ttl.return_value = 60
+
+    with patch("app.core.rate_limiter.get_redis_client", return_value=mock_redis):
+        # Client 1 behind Nginx
+        client.post(
+            "/api/auth/login",
+            headers={"X-Forwarded-For": "203.0.113.1"},
+            json={"email": "c1@example.com", "password": "Password123!"}
+        )
+        # Client 2 behind Nginx
+        client.post(
+            "/api/auth/login",
+            headers={"X-Forwarded-For": "203.0.113.2"},
+            json={"email": "c2@example.com", "password": "Password123!"}
+        )
+
+    assert "rl:login:203.0.113.1" in redis_keys
+    assert "rl:login:203.0.113.2" in redis_keys
+
+

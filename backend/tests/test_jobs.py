@@ -404,3 +404,113 @@ def test_import_job_ssrf_timeout_handling(client):
             assert resp.status_code == 400
             assert "timed out" in resp.json()["detail"].lower()
 
+
+def test_import_job_ssrf_dns_rebinding_pinned_ip_transport():
+    """SSRF: PinnedSyncBackend directly connects to validated IP and eliminates DNS rebinding TOCTOU gap."""
+    from unittest.mock import MagicMock
+    from app.services.job_service import PinnedSyncBackend
+
+    backend = PinnedSyncBackend({"rebind-attack.com": "93.184.216.34"})
+    mock_super_connect = MagicMock()
+
+    with patch("httpcore._backends.sync.SyncBackend.connect_tcp", mock_super_connect):
+        backend.connect_tcp("rebind-attack.com", 443)
+        mock_super_connect.assert_called_once()
+        # Verifies connection host passed to TCP socket is the pinned IP, NOT the domain name
+        args, kwargs = mock_super_connect.call_args
+        assert args[0] == "93.184.216.34"
+        assert args[1] == 443
+
+
+def test_import_job_ssrf_streamed_oversized_body_aborts_immediately(client):
+    """SSRF/DoS: Streamed chunk generator aborts immediately as soon as 2MB limit is exceeded."""
+    headers = register_and_login(client, "stream_abort@example.com")
+
+    # Infinite generator of 64KB chunks
+    def infinite_chunks():
+        while True:
+            yield b"X" * 65536
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"content-type": "text/html"}
+    mock_resp.iter_bytes.return_value = infinite_chunks()
+
+    mock_stream_ctx = MagicMock()
+    mock_stream_ctx.__enter__.return_value = mock_resp
+
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]):
+        with patch("app.services.job_service.create_pinned_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = mock_stream_ctx
+            mock_create_client.return_value = mock_client
+
+            resp = client.post(
+                "/api/jobs/import-url",
+                headers=headers,
+                json={"url": "https://examplecorp.com/infinite-stream"}
+            )
+            assert resp.status_code == 400
+            assert "2 mb" in resp.json()["detail"].lower()
+
+
+def test_import_job_ssrf_content_length_header_too_large_rejected_upfront(client):
+    """SSRF/DoS: Declared Content-Length > 2MB is rejected upfront before reading body."""
+    headers = register_and_login(client, "content_len@example.com")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"content-type": "text/html", "content-length": "10485760"}  # 10 MB
+
+    mock_stream_ctx = MagicMock()
+    mock_stream_ctx.__enter__.return_value = mock_resp
+
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]):
+        with patch("app.services.job_service.create_pinned_client") as mock_create_client:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = mock_stream_ctx
+            mock_create_client.return_value = mock_client
+
+            resp = client.post(
+                "/api/jobs/import-url",
+                headers=headers,
+                json={"url": "https://examplecorp.com/huge-header"}
+            )
+            assert resp.status_code == 400
+            assert "2 mb" in resp.json()["detail"].lower()
+            # iter_bytes should not even have been called because it was rejected by header
+            mock_resp.iter_bytes.assert_not_called()
+
+
+def test_import_job_ssrf_redirect_limit_exceeded_rejected(client):
+    """SSRF: Exceeding maximum allowed redirects (3) must be rejected."""
+    headers = register_and_login(client, "redirect_loop@example.com")
+
+    mock_redirect_resp = MagicMock()
+    mock_redirect_resp.status_code = 302
+    mock_redirect_resp.headers = {"location": "https://examplecorp.com/redirect-hop"}
+
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]):
+        with patch("httpx.Client.get", return_value=mock_redirect_resp):
+            resp = client.post(
+                "/api/jobs/import-url",
+                headers=headers,
+                json={"url": "https://examplecorp.com/redirect-1"}
+            )
+            assert resp.status_code == 400
+            assert "too many redirects" in resp.json()["detail"].lower()
+
+
+def test_import_job_ssrf_https_hostname_verification_failure(client):
+    """SSRF: HTTPS hostname mismatch or invalid TLS certificate returns safe network error."""
+    headers = register_and_login(client, "cert_fail@example.com")
+
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]):
+        with patch("httpx.Client.get", side_effect=httpx.ConnectError("SSL: CERTIFICATE_VERIFY_FAILED")):
+            resp = client.post(
+                "/api/jobs/import-url",
+                headers=headers,
+                json={"url": "https://invalid-cert-site.com/job"}
+            )
+            assert resp.status_code == 400
+            assert "network error" in resp.json()["detail"].lower() or "unable to connect" in resp.json()["detail"].lower()

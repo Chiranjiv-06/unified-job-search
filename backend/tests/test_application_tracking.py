@@ -79,6 +79,52 @@ def test_duplicate_application_detection(client):
     assert "already have an active application" in dup_apply.json()["detail"].lower()
 
 
+def test_reapply_after_rejection_allowed(client):
+    """Verifies that a candidate can reapply for a role after a previous application was REJECTED."""
+    headers = register_and_login(client, "reapply_user@example.com")
+
+    # 1. Create initial application
+    first_app = client.post("/api/v1/applications", headers=headers, json={
+        "job_title": "Platform Security Engineer",
+        "company_name": "SecureCorp",
+        "status": "APPLIED"
+    })
+    assert first_app.status_code == 201
+    app_id = first_app.json()["id"]
+
+    # 2. Duplicate while active returns 409
+    dup_app = client.post("/api/v1/applications", headers=headers, json={
+        "job_title": "Platform Security Engineer",
+        "company_name": "SecureCorp",
+        "status": "APPLIED"
+    })
+    assert dup_app.status_code == 409
+
+    # 3. Transition first application to REJECTED
+    client.patch(f"/api/v1/applications/{app_id}/stage", headers=headers, json={
+        "status": "REJECTED",
+        "notes": "Position closed for current quarter"
+    })
+
+    # 4. Re-applying after rejection succeeds with 201
+    reapply_res = client.post("/api/v1/applications", headers=headers, json={
+        "job_title": "Platform Security Engineer",
+        "company_name": "SecureCorp",
+        "status": "APPLIED",
+        "notes": "Re-applying for new opening in next cycle"
+    })
+    assert reapply_res.status_code == 201
+    assert reapply_res.json()["id"] != app_id
+
+    # 5. Applying again while the new application is active returns 409
+    dup_reapply = client.post("/api/v1/applications", headers=headers, json={
+        "job_title": "Platform Security Engineer",
+        "company_name": "SecureCorp",
+        "status": "APPLIED"
+    })
+    assert dup_reapply.status_code == 409
+
+
 def test_stage_transition_lifecycle_and_history(client):
     """Advancing application through pipeline stages logs timeline history and updates last_activity_at."""
     headers = register_and_login(client, "lifecycle_user@example.com")

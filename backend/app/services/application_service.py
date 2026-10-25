@@ -65,19 +65,20 @@ class ApplicationService:
 
         company_id = company.id if company else None
 
-        # Duplicate check: prevent duplicate application for same user, company, and job title
+        # Duplicate check: prevent duplicate active application for same user, company, and job title
         if company_id:
             duplicate = db.execute(
                 select(Application).where(
                     Application.user_id == user_id,
                     Application.company_id == company_id,
-                    func.lower(Application.job_title) == application_in.job_title.strip().lower()
+                    func.lower(Application.job_title) == application_in.job_title.strip().lower(),
+                    Application.status != ApplicationStatus.REJECTED
                 )
             ).scalar_one_or_none()
             if duplicate:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=f"An application for '{application_in.job_title}' at this company already exists in your pipeline."
+                    detail=f"An active application for '{application_in.job_title}' at this company already exists in your pipeline."
                 )
 
         now = datetime.now(timezone.utc)
@@ -142,11 +143,14 @@ class ApplicationService:
         # Duplicate check: check if candidate already applied to this specific job or same role at company
         existing_app_stmt = select(Application).where(
             Application.user_id == user_id,
-            (Application.job_id == job.id) |
             (
-                (Application.company_id == company_id) &
-                (func.lower(Application.job_title) == job.title.strip().lower())
-            )
+                (Application.job_id == job.id) |
+                (
+                    (Application.company_id == company_id) &
+                    (func.lower(Application.job_title) == job.title.strip().lower())
+                )
+            ),
+            Application.status != ApplicationStatus.REJECTED
         )
         existing_app = db.execute(existing_app_stmt).scalar_one_or_none()
         if existing_app:
