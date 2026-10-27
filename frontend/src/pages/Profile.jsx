@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import useAuth from '../hooks/useAuth';
-import { getProfileApi, updateProfileApi, uploadResumeApi, confirmSkillsApi } from '../services/api';
+import { getProfileApi, updateProfileApi, uploadResumeApi, confirmSkillsApi, getTargetRolesApi } from '../services/api';
 import {
   User,
   GraduationCap,
@@ -16,7 +16,10 @@ import {
   Layers,
   FileText,
   Upload,
-  Check
+  Check,
+  Search,
+  Sparkles,
+  Trash2
 } from 'lucide-react';
 
 export default function Profile() {
@@ -30,10 +33,22 @@ export default function Profile() {
   // Form states
   const [education, setEducation] = useState('');
   const [experienceLevel, setExperienceLevel] = useState('Entry-Level');
-  const [preferredRoles, setPreferredRoles] = useState('');
   const [preferredLocations, setPreferredLocations] = useState('');
   const [preferredWorkMode, setPreferredWorkMode] = useState('Any');
   const [salaryExpectation, setSalaryExpectation] = useState('');
+
+  // Target Roles states
+  const [targetRoles, setTargetRoles] = useState([]);
+  const [roleSearchInput, setRoleSearchInput] = useState('');
+  const [availableRoles, setAvailableRoles] = useState([
+    'Backend Developer', 'Software Developer', 'Full Stack Developer',
+    'Python Developer', 'Java Developer', 'Data Analyst', 'Data Scientist',
+    'AI/ML Engineer', 'DevOps Engineer', 'QA / Test Engineer',
+    'Database Developer', 'Cybersecurity Analyst', 'Frontend Developer',
+    'Cloud Engineer', 'Mobile Developer'
+  ]);
+  const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
+  const roleDropdownRef = useRef(null);
 
   // Skills state
   const [skills, setSkills] = useState([]);
@@ -48,17 +63,45 @@ export default function Profile() {
   const [selectedDraftSkills, setSelectedDraftSkills] = useState(new Set());
   const [extractedPreview, setExtractedPreview] = useState('');
 
-
   useEffect(() => {
     let ignore = false;
 
-    const fetchProfile = async () => {
+    const fetchProfileData = async () => {
       try {
+        // Fetch target roles from backend
+        getTargetRolesApi()
+          .then((data) => {
+            if (data?.roles && Array.isArray(data.roles) && data.roles.length > 0) {
+              setAvailableRoles(data.roles);
+            }
+          })
+          .catch(() => {
+            // Keep default list
+          });
+
         const data = await getProfileApi();
         if (!ignore) {
           setEducation(data.education || '');
           setExperienceLevel(data.experience_level || 'Entry-Level');
-          setPreferredRoles(data.preferred_roles || '');
+
+          // Parse and load preferred roles
+          if (Array.isArray(data.preferred_roles)) {
+            setTargetRoles(data.preferred_roles);
+          } else if (typeof data.preferred_roles === 'string' && data.preferred_roles.trim()) {
+            try {
+              const parsed = JSON.parse(data.preferred_roles);
+              if (Array.isArray(parsed)) {
+                setTargetRoles(parsed);
+              } else {
+                setTargetRoles(data.preferred_roles.split(',').map((r) => r.trim()).filter(Boolean));
+              }
+            } catch {
+              setTargetRoles(data.preferred_roles.split(',').map((r) => r.trim()).filter(Boolean));
+            }
+          } else {
+            setTargetRoles([]);
+          }
+
           setPreferredLocations(data.preferred_locations || '');
           setPreferredWorkMode(data.preferred_work_mode || 'Any');
           setSalaryExpectation(data.salary_expectation || '');
@@ -75,12 +118,70 @@ export default function Profile() {
       }
     };
 
-    fetchProfile();
+    fetchProfileData();
 
     return () => {
       ignore = true;
     };
   }, []);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (roleDropdownRef.current && !roleDropdownRef.current.contains(event.target)) {
+        setIsRoleDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const handleAddTargetRole = (roleToAdd) => {
+    const clean = roleToAdd?.trim();
+    if (!clean) return;
+    const lower = clean.toLowerCase();
+    if (!targetRoles.some((r) => r.toLowerCase() === lower)) {
+      setTargetRoles((prev) => [...prev, clean]);
+    }
+    setRoleSearchInput('');
+    setIsRoleDropdownOpen(false);
+  };
+
+  const handleRemoveTargetRole = (roleToRemove) => {
+    setTargetRoles((prev) => prev.filter((r) => r.toLowerCase() !== roleToRemove.toLowerCase()));
+  };
+
+  const handleClearAllTargetRoles = () => {
+    setTargetRoles([]);
+  };
+
+  const handleRoleInputKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (roleSearchInput.trim()) {
+        const firstMatch = filteredAvailableRoles.find(
+          (r) => !targetRoles.some((t) => t.toLowerCase() === r.toLowerCase())
+        );
+        if (firstMatch) {
+          handleAddTargetRole(firstMatch);
+        } else {
+          handleAddTargetRole(roleSearchInput.trim());
+        }
+      }
+    } else if (e.key === 'Escape') {
+      setIsRoleDropdownOpen(false);
+    }
+  };
+
+  const filteredAvailableRoles = availableRoles.filter((role) =>
+    role.toLowerCase().includes(roleSearchInput.trim().toLowerCase())
+  );
+
+  const suggestedRolesToAdd = availableRoles.filter(
+    (role) => !targetRoles.some((r) => r.toLowerCase() === role.toLowerCase())
+  );
 
   const handleResumeFileSelect = (e) => {
     const file = e.target.files?.[0];
@@ -193,7 +294,7 @@ export default function Profile() {
       const payload = {
         education,
         experience_level: experienceLevel,
-        preferred_roles: preferredRoles,
+        preferred_roles: targetRoles,
         preferred_locations: preferredLocations,
         preferred_work_mode: preferredWorkMode,
         salary_expectation: salaryExpectation,
@@ -205,6 +306,9 @@ export default function Profile() {
 
       const updated = await updateProfileApi(payload);
       setSkills(updated.skills || []);
+      if (Array.isArray(updated.preferred_roles)) {
+        setTargetRoles(updated.preferred_roles);
+      }
       setSuccessMsg('Profile and preferences updated successfully!');
       setTimeout(() => setSuccessMsg(null), 4000);
     } catch (err) {
@@ -333,18 +437,144 @@ export default function Profile() {
             <h3 style={styles.cardTitle}>Target Job Preferences</h3>
           </div>
 
+          {/* Target Roles Multi-Select Section */}
           <div style={styles.fieldGroup}>
-            <label style={styles.label}>
-              <Briefcase size={14} style={{ marginRight: '6px' }} />
-              Preferred Roles (comma-separated)
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Software Engineer, Full Stack Developer, Python Developer"
-              value={preferredRoles}
-              onChange={(e) => setPreferredRoles(e.target.value)}
-              style={styles.input}
-            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label style={styles.label}>
+                <Briefcase size={14} style={{ marginRight: '6px' }} />
+                Target Job Roles ({targetRoles.length} selected)
+              </label>
+              {targetRoles.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearAllTargetRoles}
+                  style={styles.clearRolesBtn}
+                  title="Clear all selected target roles"
+                >
+                  <Trash2 size={12} />
+                  <span>Clear All</span>
+                </button>
+              )}
+            </div>
+            <p style={{ fontSize: '12px', color: '#6b7280', margin: '0 0 8px 0' }}>
+              Select the job roles you want to pursue. Our explainable ranking algorithm prioritizes opportunities directly aligning with these target roles.
+            </p>
+
+            {/* Searchable input with suggestion dropdown */}
+            <div ref={roleDropdownRef} style={styles.roleSearchContainer}>
+              <div style={styles.roleInputWrapper}>
+                <Search size={15} color="#9ca3af" style={{ marginLeft: '10px' }} />
+                <input
+                  type="text"
+                  id="target-roles-search-input"
+                  placeholder="Search roles to add (e.g. Backend Developer, Data Analyst)..."
+                  value={roleSearchInput}
+                  onChange={(e) => {
+                    setRoleSearchInput(e.target.value);
+                    setIsRoleDropdownOpen(true);
+                  }}
+                  onFocus={() => setIsRoleDropdownOpen(true)}
+                  onKeyDown={handleRoleInputKeyDown}
+                  style={styles.roleSearchInput}
+                  role="combobox"
+                  aria-expanded={isRoleDropdownOpen}
+                  aria-autocomplete="list"
+                />
+                {roleSearchInput.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => handleAddTargetRole(roleSearchInput)}
+                    style={styles.addRoleInlineBtn}
+                  >
+                    <Plus size={14} />
+                    <span>Add</span>
+                  </button>
+                )}
+              </div>
+
+              {isRoleDropdownOpen && filteredAvailableRoles.length > 0 && (
+                <div style={styles.roleDropdown}>
+                  {filteredAvailableRoles.map((role) => {
+                    const isSelected = targetRoles.some(
+                      (r) => r.toLowerCase() === role.toLowerCase()
+                    );
+                    return (
+                      <div
+                        key={role}
+                        onClick={() => {
+                          if (!isSelected) {
+                            handleAddTargetRole(role);
+                          } else {
+                            handleRemoveTargetRole(role);
+                          }
+                        }}
+                        style={{
+                          ...styles.roleDropdownItem,
+                          backgroundColor: isSelected ? '#eff6ff' : '#ffffff',
+                          color: isSelected ? '#1d4ed8' : '#1f2937',
+                          fontWeight: isSelected ? '600' : '400',
+                        }}
+                      >
+                        <span>{role}</span>
+                        {isSelected ? (
+                          <span style={{ fontSize: '11px', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Check size={13} /> Selected
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '11px', color: '#6b7280' }}>
+                            + Add
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Selected Target Roles Chips */}
+            <div style={styles.targetRolesChipContainer}>
+              {targetRoles.length === 0 ? (
+                <span style={styles.noRolesText}>
+                  No target roles selected yet. Search above or pick from popular recommendations below to prioritize your job feed.
+                </span>
+              ) : (
+                targetRoles.map((role) => (
+                  <div key={role} style={styles.targetRoleChip}>
+                    <Briefcase size={12} color="#2563eb" />
+                    <span>{role}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTargetRole(role)}
+                      style={styles.removeRoleBtn}
+                      title={`Remove ${role}`}
+                      aria-label={`Remove ${role}`}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Quick Suggestion Pills */}
+            {suggestedRolesToAdd.length > 0 && (
+              <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '11px', color: '#6b7280', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  <Sparkles size={12} color="#f59e0b" /> Popular:
+                </span>
+                {suggestedRolesToAdd.slice(0, 5).map((role) => (
+                  <button
+                    key={role}
+                    type="button"
+                    onClick={() => handleAddTargetRole(role)}
+                    style={styles.suggestionPill}
+                  >
+                    <Plus size={11} /> {role}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div style={styles.row}>
@@ -909,6 +1139,128 @@ const styles = {
     fontWeight: '600',
     border: 'none',
     cursor: 'not-allowed',
+  },
+  roleSearchContainer: {
+    position: 'relative',
+    marginBottom: '10px',
+  },
+  roleInputWrapper: {
+    display: 'flex',
+    alignItems: 'center',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    backgroundColor: '#ffffff',
+    overflow: 'hidden',
+    transition: 'border-color 0.15s ease',
+  },
+  roleSearchInput: {
+    flex: 1,
+    padding: '9px 12px',
+    border: 'none',
+    fontSize: '13px',
+    outline: 'none',
+    backgroundColor: 'transparent',
+  },
+  addRoleInlineBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    marginRight: '6px',
+    padding: '5px 12px',
+    borderRadius: '6px',
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    fontSize: '12px',
+    fontWeight: '600',
+    border: 'none',
+    cursor: 'pointer',
+  },
+  roleDropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    maxHeight: '220px',
+    overflowY: 'auto',
+    backgroundColor: '#ffffff',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    boxShadow: '0 6px 16px rgba(0, 0, 0, 0.08)',
+    zIndex: 30,
+    marginTop: '4px',
+  },
+  roleDropdownItem: {
+    padding: '9px 14px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottom: '1px solid #f9fafb',
+  },
+  targetRolesChipContainer: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+    minHeight: '44px',
+    padding: '12px',
+    borderRadius: '8px',
+    backgroundColor: '#f9fafb',
+    border: '1px solid #e5e7eb',
+  },
+  noRolesText: {
+    fontSize: '13px',
+    color: '#9ca3af',
+  },
+  targetRoleChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 12px',
+    borderRadius: '20px',
+    backgroundColor: '#eff6ff',
+    border: '1px solid #bfdbfe',
+    color: '#1d4ed8',
+    fontSize: '13px',
+    fontWeight: '500',
+  },
+  removeRoleBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '18px',
+    height: '18px',
+    borderRadius: '50%',
+    backgroundColor: 'transparent',
+    border: 'none',
+    color: '#3b82f6',
+    cursor: 'pointer',
+  },
+  clearRolesBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    background: 'none',
+    border: 'none',
+    color: '#ef4444',
+    fontSize: '12px',
+    cursor: 'pointer',
+    padding: '2px 6px',
+    borderRadius: '4px',
+  },
+  suggestionPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 10px',
+    borderRadius: '16px',
+    backgroundColor: '#f3f4f6',
+    border: '1px solid #e5e7eb',
+    color: '#4b5563',
+    fontSize: '11px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.12s ease',
   },
 };
 

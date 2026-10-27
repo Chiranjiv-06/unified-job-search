@@ -89,6 +89,30 @@ services:
     networks:
       - ujs-network
 
+  beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ujs-beat
+    restart: unless-stopped
+    command: [ "celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info" ]
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DEBUG: ${DEBUG:-False}
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set in your .env file for production security}"
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET:?WEBHOOK_SECRET must be set in your .env file for production security}"
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-unified_job_search}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ujs-network
+
   frontend:
     build:
       context: .

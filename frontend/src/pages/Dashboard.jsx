@@ -7,7 +7,10 @@ import {
   ArrowRight,
   FileText,
   Search,
-  Sparkles
+  Sparkles,
+  Kanban,
+  Mail,
+  Bell
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -20,7 +23,7 @@ export default function Dashboard() {
         <div>
           <div style={styles.badge}>
             <Sparkles size={14} />
-            <span>Phase 3 Active</span>
+            <span>Unified Platform Active</span>
           </div>
           <h1 style={styles.welcomeTitle}>
             Welcome back, {user?.full_name || 'Candidate'}!
@@ -79,10 +82,58 @@ export default function Dashboard() {
           </div>
           <h3 style={styles.moduleTitle}>Job Discovery & Records</h3>
           <p style={styles.moduleDesc}>
-            Search opportunities, filter by stack and location, import jobs from URLs, or add manually.
+            Multi-source job discovery, stack and location filters, URL import, and explainable fit matching.
           </p>
           <Link to="/jobs" style={styles.cardLink}>
             Explore jobs →
+          </Link>
+        </div>
+
+        <div style={styles.moduleCard}>
+          <div style={styles.moduleHeader}>
+            <div style={{ ...styles.moduleIcon, backgroundColor: '#ecfdf5', color: '#047857' }}>
+              <Kanban size={20} />
+            </div>
+            <span style={styles.statusBadgeCompleted}>Active</span>
+          </div>
+          <h3 style={styles.moduleTitle}>Application Pipeline</h3>
+          <p style={styles.moduleDesc}>
+            Kanban workflow tracking applications across Draft, Applied, Interview, Offer, and Rejected.
+          </p>
+          <Link to="/tracker" style={styles.cardLink}>
+            Open tracker →
+          </Link>
+        </div>
+
+        <div style={styles.moduleCard}>
+          <div style={styles.moduleHeader}>
+            <div style={{ ...styles.moduleIcon, backgroundColor: '#e0e7ff', color: '#4338ca' }}>
+              <Mail size={20} />
+            </div>
+            <span style={styles.statusBadgeCompleted}>Active</span>
+          </div>
+          <h3 style={styles.moduleTitle}>Email Intelligence</h3>
+          <p style={styles.moduleDesc}>
+            Recruiter email classification, automated interview/test event tracking, and scam detection.
+          </p>
+          <Link to="/emails" style={styles.cardLink}>
+            View email hub →
+          </Link>
+        </div>
+
+        <div style={styles.moduleCard}>
+          <div style={styles.moduleHeader}>
+            <div style={{ ...styles.moduleIcon, backgroundColor: '#fee2e2', color: '#b91c1c' }}>
+              <Bell size={20} />
+            </div>
+            <span style={styles.statusBadgeCompleted}>Active</span>
+          </div>
+          <h3 style={styles.moduleTitle}>Reminders & Follow-Ups</h3>
+          <p style={styles.moduleDesc}>
+            Application aging alerts, response deadlines, and intelligent follow-up email draft generator.
+          </p>
+          <Link to="/reminders" style={styles.cardLink}>
+            View reminders →
           </Link>
         </div>
       </div>

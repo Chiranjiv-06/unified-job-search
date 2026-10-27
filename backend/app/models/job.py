@@ -38,6 +38,7 @@ class Job(Base):
     experience_years_required: Mapped[Optional[float]] = mapped_column(Float, default=0.0, nullable=True)
     experience_level: Mapped[Optional[str]] = mapped_column(String(50), default="Entry-Level", nullable=True)
     education_requirement: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    employment_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     work_mode: Mapped[Optional[str]] = mapped_column(String(50), default="Any", nullable=True, index=True)
     
@@ -47,11 +48,22 @@ class Job(Base):
     salary_currency: Mapped[Optional[str]] = mapped_column(String(10), default="INR", nullable=True)
     salary_range: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     
-    # Source & metadata
+    # Source, deduplication & tracking
     source_platform: Mapped[Optional[str]] = mapped_column(String(100), default="Manual", nullable=True, index=True)
     source_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    company_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     posting_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    is_expired: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    import_status: Mapped[Optional[str]] = mapped_column(String(50), default="active", nullable=True)
+    raw_metadata: Mapped[Optional[Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=True,
+        default=dict
+    )
     
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -71,4 +83,4 @@ class Job(Base):
     applications: Mapped[List["Application"]] = relationship("Application", back_populates="job")
 
     def __repr__(self) -> str:
-        return f"<Job id={self.id} title={self.title} company={self.company_name}>"
+        return f"<Job id={self.id} title={self.title} company={self.company_name} source={self.source_platform}>"

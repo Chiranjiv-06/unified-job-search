@@ -98,6 +98,11 @@ export const updateProfileApi = async (profileData) => {
   return response.data;
 };
 
+export const getTargetRolesApi = async () => {
+  const response = await api.get('/api/profile/target-roles');
+  return response.data;
+};
+
 export const uploadResumeApi = async (file) => {
   const formData = new FormData();
   formData.append('file', file);
@@ -145,14 +150,24 @@ export const deleteJobApi = async (jobId) => {
   return response.data;
 };
 
+export const syncJobSourcesApi = async (data = {}) => {
+  const response = await api.post('/api/jobs/sources/sync', data);
+  return response.data;
+};
+
+export const getJobSourcesStatusApi = async () => {
+  const response = await api.get('/api/jobs/sources/status');
+  return response.data;
+};
+
 // Explainable Job Matching endpoints
 export const matchJobApi = async (jobId) => {
   const response = await api.post(`/api/jobs/${jobId}/match`);
   return response.data;
 };
 
-export const getRankedJobMatchesApi = async () => {
-  const response = await api.get('/api/jobs/matches');
+export const getRankedJobMatchesApi = async (params = {}) => {
+  const response = await api.get('/api/jobs/matches', { params });
   return response.data;
 };
 

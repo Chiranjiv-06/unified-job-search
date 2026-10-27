@@ -48,3 +48,40 @@ def process_incoming_email_task(self, email_data: Dict[str, Any], db_session=Non
     finally:
         if close_on_finish:
             db.close()
+@celery_app.task(name="orchestrate_job_ingestion_task", bind=True, max_retries=2, default_retry_delay=120)
+def orchestrate_job_ingestion_task(
+    self,
+    sources: Optional[list] = None,
+    limit_per_source: int = 20,
+    db_session=None
+) -> Dict[str, Any]:
+    """
+    Celery background worker task:
+    1. Fetches listings from enabled external sources (RemoteOK, Jobicy).
+    2. Runs multi-tier deduplication.
+    3. Safely upserts records and marks stale jobs as expired.
+    4. Records execution telemetry.
+    """
+    from app.services.job_ingestion_service import JobIngestionService
+    db = db_session or SessionLocal()
+    close_on_finish = db_session is None
+    try:
+        logger.info(f"Starting job ingestion background task for sources={sources}, limit={limit_per_source}")
+        result = JobIngestionService.sync_sources(
+            db=db,
+            sources=sources,
+            limit_per_source=limit_per_source
+        )
+        logger.info(f"Completed job ingestion background task: {result}")
+        return result
+    except Exception as exc:
+        logger.error(f"Error in job ingestion background task: {exc}", exc_info=True)
+        if hasattr(self, "retry"):
+            try:
+                raise self.retry(exc=exc)
+            except Exception:
+                raise exc
+        raise exc
+    finally:
+        if close_on_finish:
+            db.close()

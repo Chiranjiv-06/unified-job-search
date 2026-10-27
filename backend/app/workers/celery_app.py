@@ -21,3 +21,12 @@ celery_app.conf.update(
 
 # Optional broker connection retry on startup
 celery_app.conf.broker_connection_retry_on_startup = True
+
+# Periodic Celery Beat Schedule for Automated Job Discovery
+celery_app.conf.beat_schedule = {
+    "sync-jobs-periodic-6h": {
+        "task": "orchestrate_job_ingestion_task",
+        "schedule": 21600.0,  # Run every 6 hours
+        "args": (["remoteok", "jobicy"], 25),
+    },
+}

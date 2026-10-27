@@ -7,7 +7,8 @@ import {
   getRankedJobMatchesApi,
   verifyJobApi,
   getJobVerificationApi,
-  trackJobApplyApi
+  trackJobApplyApi,
+  syncJobSourcesApi
 } from '../services/api';
 import {
   Briefcase,
@@ -32,8 +33,11 @@ import {
   ShieldAlert,
   Shield,
   RotateCw,
-  BookmarkCheck
+  BookmarkCheck,
+  ArrowUpDown,
+  User
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function JobDiscovery() {
   const [jobs, setJobs] = useState([]);
@@ -67,6 +71,13 @@ export default function JobDiscovery() {
   const [locationFilter, setLocationFilter] = useState('');
   const [workModeFilter, setWorkModeFilter] = useState('Any');
   const [skillFilter, setSkillFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('All');
+  const [employmentTypeFilter, setEmploymentTypeFilter] = useState('All');
+  const [sortBy, setSortBy] = useState('recent');
+  const [hasProfileSkills, setHasProfileSkills] = useState(true);
+
+  // Ingestion sync state
+  const [syncingSources, setSyncingSources] = useState(false);
 
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -100,6 +111,9 @@ export default function JobDiscovery() {
       if (locationFilter.trim()) params.location = locationFilter.trim();
       if (workModeFilter && workModeFilter !== 'Any') params.work_mode = workModeFilter;
       if (skillFilter.trim()) params.skill = skillFilter.trim();
+      if (sourceFilter && sourceFilter !== 'All') params.source = sourceFilter;
+      if (employmentTypeFilter && employmentTypeFilter !== 'All') params.employment_type = employmentTypeFilter;
+      if (sortBy) params.sort_by = sortBy;
 
       const data = await getJobsApi(params);
       setJobs(data.jobs || []);
@@ -109,14 +123,40 @@ export default function JobDiscovery() {
     } finally {
       setLoading(false);
     }
-  }, [searchTerm, locationFilter, workModeFilter, skillFilter]);
+  }, [searchTerm, locationFilter, workModeFilter, skillFilter, sourceFilter, employmentTypeFilter, sortBy]);
+
+  const fetchRankedMatches = useCallback(async () => {
+    setLoadingRanked(true);
+    setErrorMsg(null);
+    try {
+      const params = {};
+      if (searchTerm.trim()) params.q = searchTerm.trim();
+      if (locationFilter.trim()) params.location = locationFilter.trim();
+      if (workModeFilter && workModeFilter !== 'Any') params.work_mode = workModeFilter;
+      if (skillFilter.trim()) params.skill = skillFilter.trim();
+      if (sourceFilter && sourceFilter !== 'All') params.source = sourceFilter;
+      if (employmentTypeFilter && employmentTypeFilter !== 'All') params.employment_type = employmentTypeFilter;
+
+      const data = await getRankedJobMatchesApi(params);
+      setRankedJobs(data.rankings || []);
+      setHasProfileSkills(data.has_profile_skills !== false);
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to load ranked job matches.');
+    } finally {
+      setLoadingRanked(false);
+    }
+  }, [searchTerm, locationFilter, workModeFilter, skillFilter, sourceFilter, employmentTypeFilter]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      fetchJobs();
+      if (activeTab === 'all') {
+        fetchJobs();
+      } else {
+        fetchRankedMatches();
+      }
     }, 250);
     return () => clearTimeout(timer);
-  }, [fetchJobs]);
+  }, [activeTab, fetchJobs, fetchRankedMatches]);
 
   const handleCheckMatch = async (job) => {
     setMatchModalJob(job);
@@ -133,23 +173,10 @@ export default function JobDiscovery() {
     }
   };
 
-  const fetchRankedMatches = async () => {
-    setLoadingRanked(true);
-    setErrorMsg(null);
-    try {
-      const data = await getRankedJobMatchesApi();
-      setRankedJobs(data.rankings || []);
-    } catch (err) {
-      setErrorMsg(err.customMessage || 'Failed to load ranked job matches.');
-    } finally {
-      setLoadingRanked(false);
-    }
-  };
-
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     if (tab === 'ranked') {
-      fetchRankedMatches();
+      setSortBy('match');
     }
   };
 
@@ -277,11 +304,29 @@ export default function JobDiscovery() {
     }
   };
 
+  const handleSyncSources = async () => {
+    setSyncingSources(true);
+    setErrorMsg(null);
+    try {
+      const res = await syncJobSourcesApi();
+      setSuccessMsg(res.message || 'Job feeds synchronized successfully!');
+      setTimeout(() => setSuccessMsg(null), 5000);
+      fetchJobs();
+    } catch (err) {
+      setErrorMsg(err.customMessage || 'Failed to synchronize external job sources.');
+    } finally {
+      setSyncingSources(false);
+    }
+  };
+
   const handleClearFilters = () => {
     setSearchTerm('');
     setLocationFilter('');
     setWorkModeFilter('Any');
     setSkillFilter('');
+    setSourceFilter('All');
+    setEmploymentTypeFilter('All');
+    setSortBy('recent');
   };
 
   return (
@@ -291,10 +336,19 @@ export default function JobDiscovery() {
         <div>
           <h1 style={styles.pageTitle}>Job Discovery & Records</h1>
           <p style={styles.pageSub}>
-            Discover verified tech opportunities, import job links, and track skill requirements
+            Discover verified tech opportunities across RemoteOK, Jobicy, imported URLs, and manual records
           </p>
         </div>
         <div style={styles.headerActions}>
+          <button
+            onClick={handleSyncSources}
+            disabled={syncingSources}
+            style={{ ...styles.outlineBtn, borderColor: '#7c3aed', color: '#7c3aed' }}
+            title="Fetch latest opportunities from RemoteOK and Jobicy"
+          >
+            <RotateCw size={16} className={syncingSources ? 'spin' : ''} />
+            <span>{syncingSources ? 'Syncing Feeds...' : 'Sync Feeds'}</span>
+          </button>
           <button
             onClick={() => setShowImportModal(true)}
             style={styles.outlineBtn}
@@ -347,16 +401,34 @@ export default function JobDiscovery() {
         </button>
       </div>
 
-      {/* Search and Filters Bar */}
-      {activeTab === 'all' && (
-        <div style={styles.filterCard}>
+      {/* Profile Prompt Banner if profile skills missing */}
+      {!hasProfileSkills && (
+        <div style={styles.profilePromptBanner}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <User size={20} color="#b45309" />
+            <div>
+              <strong style={{ display: 'block', fontSize: '13px', color: '#92400e' }}>
+                Candidate Profile Needs Skills / Target Roles
+              </strong>
+              <span style={{ fontSize: '12px', color: '#b45309' }}>
+                Add your technical skills and role preferences to unlock personalized, explainable job fit rankings.
+              </span>
+            </div>
+          </div>
+          <Link to="/profile" style={styles.profilePromptLink}>
+            Complete Profile &rarr;
+          </Link>
+        </div>
+      )}
 
+      {/* Search and Filters Bar */}
+      <div style={styles.filterCard}>
         <div style={styles.searchRow}>
           <div style={styles.searchInputWrapper}>
             <Search size={18} color="#9ca3af" style={styles.searchIcon} />
             <input
               type="text"
-              placeholder="Search by role, company name, or keywords (e.g. FastAPI, React)..."
+              placeholder="Search by role, company name, or keywords (e.g. Python, SQL, React)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={styles.searchInput}
@@ -388,6 +460,36 @@ export default function JobDiscovery() {
           </div>
 
           <div style={styles.filterGroup}>
+            <Globe size={15} color="#6b7280" />
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              style={styles.filterSelect}
+            >
+              <option value="All">All Sources</option>
+              <option value="RemoteOK">RemoteOK</option>
+              <option value="Jobicy">Jobicy</option>
+              <option value="Careers Portal">Imported URLs</option>
+              <option value="Manual">Manual</option>
+            </select>
+          </div>
+
+          <div style={styles.filterGroup}>
+            <Briefcase size={15} color="#6b7280" />
+            <select
+              value={employmentTypeFilter}
+              onChange={(e) => setEmploymentTypeFilter(e.target.value)}
+              style={styles.filterSelect}
+            >
+              <option value="All">All Types</option>
+              <option value="Full-time">Full-time</option>
+              <option value="Contract">Contract</option>
+              <option value="Part-time">Part-time</option>
+              <option value="Internship">Internship</option>
+            </select>
+          </div>
+
+          <div style={styles.filterGroup}>
             <Briefcase size={15} color="#6b7280" />
             <select
               value={workModeFilter}
@@ -401,7 +503,21 @@ export default function JobDiscovery() {
             </select>
           </div>
 
-          {(searchTerm || locationFilter || workModeFilter !== 'Any' || skillFilter) && (
+          <div style={styles.filterGroup}>
+            <ArrowUpDown size={15} color="#6b7280" />
+            <select
+              value={activeTab === 'ranked' ? 'match' : sortBy}
+              disabled={activeTab === 'ranked'}
+              onChange={(e) => setSortBy(e.target.value)}
+              style={styles.filterSelect}
+              title={activeTab === 'ranked' ? 'Ranked tab automatically sorts by fit' : 'Sort opportunities'}
+            >
+              <option value="recent">Most Recent</option>
+              <option value="match">Best Match (Relevance)</option>
+            </select>
+          </div>
+
+          {(searchTerm || locationFilter || workModeFilter !== 'Any' || skillFilter || sourceFilter !== 'All' || employmentTypeFilter !== 'All' || sortBy !== 'recent') && (
             <button onClick={handleClearFilters} style={styles.clearBtn}>
               <X size={14} />
               <span>Clear</span>
@@ -409,7 +525,6 @@ export default function JobDiscovery() {
           )}
         </div>
       </div>
-      )}
 
       {/* Results Header */}
       <div style={styles.resultsInfoRow}>
@@ -450,13 +565,49 @@ export default function JobDiscovery() {
             {jobs.map((job) => (
               <div key={job.id} style={styles.jobCard}>
                 <div style={styles.jobCardHeader}>
-                  <div>
+                  <div style={{ flex: 1, paddingRight: '8px' }}>
                     <h3 style={styles.jobTitle}>{job.title}</h3>
                     <div style={styles.companyRow}>
                       <Building2 size={15} color="#4b5563" />
                       <span style={styles.companyName}>{job.company_name}</span>
-                      <span style={styles.platformBadge}>{job.source_platform || 'Portal'}</span>
+                      <span style={{
+                        ...styles.platformBadge,
+                        ...(job.source_platform?.toLowerCase().includes('remoteok')
+                          ? { backgroundColor: '#f3e8ff', color: '#6b21a8', border: '1px solid #d8b4fe' }
+                          : job.source_platform?.toLowerCase().includes('jobicy')
+                          ? { backgroundColor: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }
+                          : { backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' })
+                      }}>
+                        {job.source_platform || 'Portal'}
+                      </span>
                     </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {job.match_score !== null && job.match_score !== undefined && (
+                      <div
+                        style={{
+                          ...styles.matchPill,
+                          backgroundColor: job.match_score >= 75 ? '#ecfdf5' : job.match_score >= 50 ? '#fffbeb' : '#fef2f2',
+                          borderColor: job.match_score >= 75 ? '#a7f3d0' : job.match_score >= 50 ? '#fde68a' : '#fecaca',
+                          color: job.match_score >= 75 ? '#047857' : job.match_score >= 50 ? '#b45309' : '#b91c1c'
+                        }}
+                        title={job.match_summary || 'Relevance estimate'}
+                      >
+                        <Target size={13} />
+                        <span>{Math.round(job.match_score)}% Match</span>
+                      </div>
+                    )}
+                    {job.source_url && (
+                      <a
+                        href={job.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={styles.directLinkBtn}
+                        title="Open original listing"
+                      >
+                        <ExternalLink size={15} />
+                      </a>
+                    )}
                   </div>
                 </div>
 
@@ -470,6 +621,16 @@ export default function JobDiscovery() {
                   {job.work_mode && (
                     <div style={styles.metaBadge}>
                       <span>{job.work_mode}</span>
+                    </div>
+                  )}
+                  {job.employment_type && (
+                    <div style={{ ...styles.metaBadge, backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}>
+                      <span>{job.employment_type}</span>
+                    </div>
+                  )}
+                  {job.is_expired && (
+                    <div style={{ ...styles.metaBadge, backgroundColor: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' }}>
+                      <span>Expired</span>
                     </div>
                   )}
                   {job.salary_range && (
@@ -581,8 +742,16 @@ export default function JobDiscovery() {
             <Target size={44} color="#9ca3af" />
             <h3 style={styles.emptyTitle}>No ranked opportunities yet</h3>
             <p style={styles.emptySub}>
-              Ensure your profile has technical skills and experience years added, then re-run matching.
+              {hasProfileSkills === false
+                ? 'Your profile does not have technical skills configured yet. Add your skills to calculate relevance.'
+                : 'No active job opportunities match your target roles and skills filter criteria.'}
             </p>
+            <div style={{ marginTop: '16px' }}>
+              <Link to="/profile" style={styles.primaryBtn}>
+                <User size={16} />
+                <span>Update Candidate Profile</span>
+              </Link>
+            </div>
           </div>
         ) : (
           <div style={styles.jobGrid}>
@@ -634,6 +803,21 @@ export default function JobDiscovery() {
                 <p style={styles.quickSummaryText}>
                   {item.quick_summary}
                 </p>
+
+                {((item.positive_reasons && item.positive_reasons.length > 0) || (item.negative_reasons && item.negative_reasons.length > 0)) && (
+                  <div style={{ margin: '8px 0', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    {item.positive_reasons?.slice(0, 2).map((pos, pIdx) => (
+                      <span key={pIdx} style={{ fontSize: '11px', color: '#047857', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Check size={11} strokeWidth={3} /> {pos}
+                      </span>
+                    ))}
+                    {item.negative_reasons?.slice(0, 1).map((neg, nIdx) => (
+                      <span key={nIdx} style={{ fontSize: '11px', color: '#b45309', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <AlertTriangle size={11} /> {neg}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 <div style={styles.jobCardFooter}>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1081,15 +1265,19 @@ export default function JobDiscovery() {
 
                       <div style={styles.weightPills}>
                         <div style={styles.weightPillItem}>
-                          <span style={styles.weightVal}>{matchBreakdown.core_skills_score}%</span>
-                          <span style={styles.weightKey}>Core (65%)</span>
+                          <span style={styles.weightVal}>{matchBreakdown.core_skills_score ?? 0}%</span>
+                          <span style={styles.weightKey}>Core (50%)</span>
                         </div>
                         <div style={styles.weightPillItem}>
-                          <span style={styles.weightVal}>{matchBreakdown.preferred_skills_score}%</span>
-                          <span style={styles.weightKey}>Preferred (20%)</span>
+                          <span style={styles.weightVal}>{matchBreakdown.preferred_skills_score ?? 0}%</span>
+                          <span style={styles.weightKey}>Preferred (15%)</span>
                         </div>
                         <div style={styles.weightPillItem}>
-                          <span style={styles.weightVal}>{matchBreakdown.experience_score}%</span>
+                          <span style={styles.weightVal}>{matchBreakdown.role_score ?? 0}%</span>
+                          <span style={styles.weightKey}>Role (20%)</span>
+                        </div>
+                        <div style={styles.weightPillItem}>
+                          <span style={styles.weightVal}>{matchBreakdown.experience_score ?? 0}%</span>
                           <span style={styles.weightKey}>Exp (15%)</span>
                         </div>
                       </div>
@@ -1116,6 +1304,34 @@ export default function JobDiscovery() {
                       <Lightbulb size={16} color="#4b5563" style={{ flexShrink: 0, marginTop: '2px' }} />
                       <span>{matchBreakdown.explanation}</span>
                     </div>
+
+                    {/* Positive Compatibility Factors */}
+                    {matchBreakdown.positive_reasons && matchBreakdown.positive_reasons.length > 0 && (
+                      <div style={{ marginTop: '12px', padding: '10px 14px', backgroundColor: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#166534', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <CheckCircle2 size={14} color="#16a34a" /> Positive Compatibility Factors:
+                        </span>
+                        <ul style={{ margin: '6px 0 0 16px', padding: 0, fontSize: '12px', color: '#15803d', lineHeight: '1.4' }}>
+                          {matchBreakdown.positive_reasons.map((r, i) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Mismatch & Uncertainty Factors */}
+                    {matchBreakdown.negative_reasons && matchBreakdown.negative_reasons.length > 0 && (
+                      <div style={{ marginTop: '8px', padding: '10px 14px', backgroundColor: '#fffbeb', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#92400e', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <AlertTriangle size={14} color="#d97706" /> Potential Mismatches & Uncertainty:
+                        </span>
+                        <ul style={{ margin: '6px 0 0 16px', padding: 0, fontSize: '12px', color: '#b45309', lineHeight: '1.4' }}>
+                          {matchBreakdown.negative_reasons.map((r, i) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
 
                   {/* Experience Gap Warning / Eligibility Status */}
@@ -1234,6 +1450,14 @@ export default function JobDiscovery() {
                       </ul>
                     </div>
                   )}
+
+                  {/* Deterministic Rule-Based Fit Disclaimer */}
+                  <div style={styles.ruleBasedDisclaimer}>
+                    <Shield size={16} color="#6b7280" style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <span>
+                      <strong>Deterministic Rule-Based Fit:</strong> Scores are calculated using verified candidate profile data (skills, role preferences, education, and experience) compared against extracted job requirements. Scores do not guarantee interview shortlisting, eligibility, or employer selection.
+                    </span>
+                  </div>
                 </div>
               ) : (
                 <div style={styles.emptyState}>
@@ -1780,6 +2004,19 @@ const styles = {
     borderRadius: '12px',
     backgroundColor: '#f3f4f6',
     color: '#4b5563',
+  },
+  directLinkBtn: {
+    color: '#6b7280',
+    padding: '6px',
+    borderRadius: '6px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textDecoration: 'none',
+    border: '1px solid #e5e7eb',
+    backgroundColor: '#f9fafb',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
   },
   metaRow: {
     display: 'flex',
@@ -2410,6 +2647,43 @@ const styles = {
     border: '1px solid #bbf7d0',
     borderRadius: '8px',
     marginTop: '16px',
+  },
+  profilePromptBanner: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 18px',
+    backgroundColor: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: '10px',
+    marginBottom: '20px',
+    flexWrap: 'wrap',
+  },
+  profilePromptLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '6px 14px',
+    borderRadius: '6px',
+    backgroundColor: '#d97706',
+    color: '#ffffff',
+    fontSize: '12px',
+    fontWeight: '600',
+    textDecoration: 'none',
+  },
+  ruleBasedDisclaimer: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '10px',
+    padding: '12px 14px',
+    backgroundColor: '#f8fafc',
+    border: '1px solid #e2e8f0',
+    borderRadius: '8px',
+    fontSize: '12px',
+    color: '#64748b',
+    lineHeight: 1.5,
+    marginTop: '18px',
   },
 };
 

@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     # Email Webhook Integration Secret
     WEBHOOK_SECRET: Optional[str] = "ujs_dev_webhook_secret_key_change_in_prod"
 
+    # Multi-Source Job Discovery
+    REMOTEOK_ENABLED: bool = True
+    REMOTEOK_API_URL: str = "https://remoteok.com/api"
+    JOBICY_ENABLED: bool = True
+    JOBICY_API_URL: str = "https://jobicy.com/api/v2/remote-jobs"
+    JOB_INGESTION_RATE_LIMIT_SECONDS: float = 1.0
+    JOB_INGESTION_MAX_JOBS_PER_SOURCE: int = 25
+
     @model_validator(mode="after")
     def validate_production_security(self):
         insecure_keys = {

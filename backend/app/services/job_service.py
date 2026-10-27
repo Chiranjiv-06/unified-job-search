@@ -12,7 +12,7 @@ import httpcore
 import httpcore._backends.sync as sync_backend
 from bs4 import BeautifulSoup
 from fastapi import HTTPException, status
-from sqlalchemy import select, func, or_, desc
+from sqlalchemy import select, func, or_, desc, cast, String
 from sqlalchemy.orm import Session
 
 from app.models.company import Company
@@ -609,15 +609,26 @@ def list_jobs(
     location: Optional[str] = None,
     work_mode: Optional[str] = None,
     skill: Optional[str] = None,
+    source: Optional[str] = None,
+    employment_type: Optional[str] = None,
+    is_expired: Optional[bool] = None,
     company_id: Optional[int] = None,
     is_active: bool = True,
+    sort_by: Optional[str] = "recent",
+    user_id: Optional[int] = None,
     skip: int = 0,
     limit: int = 20
 ) -> Tuple[List[Job], int]:
     """
-    Searches and filters job records with multi-parameter criteria and pagination.
+    Searches and filters job records with multi-parameter criteria, source filtering, and pagination.
+    Supports sorting by 'recent' (default date order) or 'match' (relevance fit against user profile).
     """
+    from app.models.profile import CandidateProfile
+
     query = select(Job).where(Job.is_active == is_active)
+
+    if is_expired is not None:
+        query = query.where(Job.is_expired == is_expired)
 
     if q:
         term = f"%{q.strip().lower()}%"
@@ -635,6 +646,30 @@ def list_jobs(
     if work_mode and work_mode.lower() != "any":
         query = query.where(func.lower(Job.work_mode) == work_mode.strip().lower())
 
+    if skill:
+        skill_clean = skill.strip().lower()
+        query = query.where(
+            or_(
+                cast(Job.required_skills, String).ilike(f"%{skill_clean}%"),
+                cast(Job.preferred_skills, String).ilike(f"%{skill_clean}%")
+            )
+        )
+
+    if source and source.lower() != "all":
+        s_clean = source.strip().lower()
+        if s_clean == "manual":
+            query = query.where(
+                or_(
+                    func.lower(Job.source_platform) == "manual",
+                    func.lower(Job.source_platform).like("manual%")
+                )
+            )
+        else:
+            query = query.where(func.lower(Job.source_platform) == s_clean)
+
+    if employment_type and employment_type.lower() != "all":
+        query = query.where(func.lower(Job.employment_type) == employment_type.strip().lower())
+
     if company_id:
         query = query.where(Job.company_id == company_id)
 
@@ -642,18 +677,44 @@ def list_jobs(
     count_query = select(func.count()).select_from(query.subquery())
     total = db.execute(count_query).scalar_one()
 
-    # Apply sorting and pagination
-    query = query.order_by(desc(Job.created_at)).offset(skip).limit(limit)
-    jobs = list(db.execute(query).scalars().all())
+    # Retrieve candidate profile if user_id is provided
+    profile = None
+    if user_id:
+        profile = db.execute(
+            select(CandidateProfile).where(CandidateProfile.user_id == user_id)
+        ).scalar_one_or_none()
 
-    # If skill filter was provided, filter memory list to ensure JSON array match
-    if skill:
-        skill_clean = skill.strip().lower()
-        jobs = [
-            j for j in jobs
-            if any(skill_clean in s.lower() for s in (j.required_skills or []))
-            or any(skill_clean in s.lower() for s in (j.preferred_skills or []))
-        ]
+    if sort_by == "match":
+        from app.services.matching_service import compute_job_match
+
+        # Evaluate all filtered jobs for deterministic relevance ranking
+        all_filtered = list(db.execute(query).scalars().all())
+        for j in all_filtered:
+            match_res = compute_job_match(profile, j)
+            j.match_score = match_res.match_score
+            j.match_summary = match_res.explanation
+
+        # Deterministic sorting: match_score DESC, posting_date DESC, job.id DESC
+        all_filtered.sort(
+            key=lambda x: (
+                -getattr(x, "match_score", 0.0),
+                -(x.posting_date.timestamp() if x.posting_date else 0.0),
+                -(x.id or 0)
+            )
+        )
+        jobs = all_filtered[skip:skip + limit]
+    else:
+        # Default 'recent' sorting: freshness first, then creation time
+        query = query.order_by(desc(Job.posting_date), desc(Job.created_at)).offset(skip).limit(limit)
+        jobs = list(db.execute(query).scalars().all())
+
+        # If user is authenticated, also enrich page jobs with their match score
+        if profile is not None:
+            from app.services.matching_service import compute_job_match
+            for j in jobs:
+                match_res = compute_job_match(profile, j)
+                j.match_score = match_res.match_score
+                j.match_summary = match_res.explanation
 
     return jobs, total
 

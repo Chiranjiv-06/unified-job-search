@@ -5,7 +5,8 @@ from app.schemas.profile import (
     SkillResponse,
     CandidateProfileBase,
     CandidateProfileUpdate,
-    CandidateProfileResponse
+    CandidateProfileResponse,
+    TargetRolesResponse
 )
 from app.schemas.application import (
     CompanyBriefResponse,
@@ -63,6 +64,7 @@ __all__ = [
     "CandidateProfileBase",
     "CandidateProfileUpdate",
     "CandidateProfileResponse",
+    "TargetRolesResponse",
     "CompanyBriefResponse",
     "ApplicationBase",
     "ApplicationCreate",

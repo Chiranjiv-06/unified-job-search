@@ -11,6 +11,7 @@ from app.schemas.profile import (
     ResumeUploadResponse,
     ConfirmSkillsRequest,
     SkillCreate,
+    TargetRolesResponse,
 )
 from app.services.resume_service import (
     validate_resume_upload,
@@ -20,6 +21,45 @@ from app.services.resume_service import (
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/profile", tags=["Candidate Profile"])
+
+AVAILABLE_TARGET_ROLES = {
+    "Software & Web Engineering": [
+        "Backend Developer",
+        "Software Developer",
+        "Full Stack Developer",
+        "Python Developer",
+        "Java Developer",
+        "Frontend Developer",
+        "Mobile Developer"
+    ],
+    "Data & AI / ML": [
+        "Data Analyst",
+        "Data Scientist",
+        "AI/ML Engineer",
+        "Database Developer"
+    ],
+    "Cloud & Infrastructure": [
+        "DevOps Engineer",
+        "Cloud Engineer",
+        "QA / Test Engineer",
+        "Cybersecurity Analyst"
+    ]
+}
+
+
+@router.get("/target-roles", response_model=TargetRolesResponse)
+def get_available_target_roles():
+    """
+    Returns standard target job roles organized by technical domain.
+    This list is extensible and used for searchable multi-select in the Candidate Profile.
+    """
+    flat = []
+    for roles in AVAILABLE_TARGET_ROLES.values():
+        flat.extend(roles)
+    return TargetRolesResponse(
+        roles=flat,
+        categories=AVAILABLE_TARGET_ROLES
+    )
 
 
 @router.get("", response_model=CandidateProfileResponse)
